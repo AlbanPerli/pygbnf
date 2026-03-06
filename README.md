@@ -4,6 +4,8 @@ A composable Python DSL for building **GBNF grammars** compatible with [llama.cp
 
 Define context-free grammars using expressive Python functions, then compile them into valid GBNF strings for constrained LLM generation.
 
+Composable API inspired by [guidance-ai](https://github.com/guidance-ai/guidance).
+
 ## Quick Start
 
 ```python
@@ -48,8 +50,6 @@ expression ::=
 ```
 
 ## Installation
-
-No external dependencies — pure Python 3.11+.
 
 ```bash
 pip install pygbnf
