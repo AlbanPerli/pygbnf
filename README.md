@@ -154,18 +154,6 @@ comma_list(identifier())   # → ident ("," " "* ident)*
 between("(", expr, ")")    # → "(" expr ")"
 ```
 
-## Optimization Passes
-
-The compiler applies AST rewrites before code generation:
-
-1. **Sequence flattening** — nested sequences are merged
-2. **Literal collapsing** — adjacent string literals are combined
-3. **Redundant group removal** — `(x)` → `x` for simple nodes
-4. **Repetition merging** — `x? x? x?` → `x{0,3}`
-5. **Singleton collapse** — single-element alternatives/sequences are unwrapped
-
-Disable with `g.to_gbnf(optimize=False)`.
-
 ## Recursion Analysis
 
 Detect left recursion in your grammar:
@@ -174,41 +162,6 @@ Detect left recursion in your grammar:
 cycles = g.detect_left_recursion()
 # Warns: "Left recursion detected: expression -> expression"
 # Suggests: rewrite as base (op base)*
-```
-
-## Project Structure
-
-```
-pygbnf/
-├── pyproject.toml           # Package metadata (PEP 621)
-├── LICENSE                  # MIT
-├── README.md
-├── CHANGELOG.md
-├── pygbnf/
-│   ├── __init__.py          # Public API and re-exports
-│   ├── grammar.py           # Grammar container, rule registration
-│   ├── nodes.py             # AST node dataclasses
-│   ├── combinators.py       # DSL functions (select, repeat, etc.)
-│   ├── gbnf_codegen.py      # AST → GBNF string compiler
-│   ├── optimizations.py     # AST rewrite passes
-│   ├── tokens.py            # Token constraint helpers
-│   ├── helpers.py           # Prebuilt grammar fragments
-│   ├── schema.py            # Types/dataclass → grammar generation
-│   └── py.typed             # PEP 561 typing marker
-├── tests/
-│   ├── test_pygbnf.py       # Core test suite
-│   └── test_full.py         # Extended test suite (271 tests)
-└── examples/
-    ├── quickstart.py         # Quick-start from this README
-    ├── arithmetic.py         # Operator precedence
-    ├── csv_grammar.py        # CSV format
-    ├── json_grammar.py       # Full JSON grammar
-    ├── simple_lang.py        # Programming language grammar
-    ├── token_demo.py         # Token-level constraints
-    ├── demo_llm.py           # LLM constrained generation
-    ├── demo_schema.py        # Schema → grammar examples
-    ├── demo_hybrid.py        # DSL + Python types mixed
-    └── demo_simple_lang.py   # Mini-language with LLM
 ```
 
 ## Examples
@@ -232,13 +185,6 @@ Run any example:
 
 ```bash
 python examples/arithmetic.py
-```
-
-## Testing
-
-```bash
-pip install -e .
-python -m pytest tests/ -v
 ```
 
 ## Schema Generation
@@ -270,19 +216,6 @@ def search(query: str, limit: int = 10):
 g = grammar_from_args(search)
 print(g.to_gbnf())
 ```
-
-## GBNF Reference
-
-- Rule names: lowercase with dashes (`my-rule`)
-- Literals: double-quoted (`"hello"`)
-- Character classes: `[0-9]`, `[a-zA-Z_]`, `[^\n]`
-- Repetition: `+`, `*`, `?`, `{m,n}`
-- Grouping: `( ... )`
-- Alternatives: `|`
-- Tokens: `<think>`, `<[1000]>`, `!<think>`
-- The `root` rule is the entry point
-
-Full spec: https://github.com/ggml-org/llama.cpp/blob/master/grammars/README.md
 
 ## Requirements
 
