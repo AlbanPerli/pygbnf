@@ -9,7 +9,7 @@ description = "A composable Python DSL for building GBNF grammars compatible wit
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
-authors = [{ name = "al" }]
+authors = [{ name = "alban perli" }]
 keywords = ["gbnf", "grammar", "llama-cpp", "llm", "constrained-generation", "dsl"]
 classifiers = [
     "Development Status :: 4 - Beta",
