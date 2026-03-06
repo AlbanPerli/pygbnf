@@ -2,9 +2,8 @@
 
 A composable Python DSL for building **GBNF grammars** compatible with [llama.cpp](https://github.com/ggml-org/llama.cpp).
 
-Define context-free grammars using expressive Python functions, then compile them into valid GBNF strings for constrained LLM generation.
-
-Composable API inspired by [guidance-ai](https://github.com/guidance-ai/guidance).
+Define context-free grammars using expressive Python functions, 
+then compile them into valid GBNF strings for constrained LLM generation.
 
 ## Quick Start
 
@@ -221,3 +220,8 @@ print(g.to_gbnf())
 
 - Python 3.11+
 - No external dependencies
+
+## Acknowledgements
+
+- [guidance-ai](https://github.com/guidance-ai/guidance) — pygbnf's composable API is inspired by their approach to constrained generation
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) — for the GBNF format and the underlying inference engine
