@@ -62,6 +62,117 @@ cd pygbnf
 pip install -e .
 ```
 
+## LLM Usage
+
+pygbnf includes `GrammarLLM`, a thin wrapper around any OpenAI-compatible endpoint (llama.cpp, vLLM, Ollama…) that injects the GBNF grammar automatically.
+
+### Basic constrained generation
+
+```python
+from pygbnf import Grammar, GrammarLLM, select
+
+g = Grammar()
+
+@g.rule
+def answer():
+    return select(["yes", "no", "maybe"])
+
+g.start("answer")
+
+llm = GrammarLLM("http://localhost:8080/v1")
+
+for token, _ in llm.stream(
+    messages=[{"role": "user", "content": "Is the sky blue?"}],
+    grammar=g,
+):
+    print(token, end="", flush=True)
+print()
+```
+
+The grammar constrains the LLM output — it can only produce `yes`, `no`, or `maybe`.
+
+### Streaming with rule matching
+
+Enable `match=True` (or pass `only`/`exclude`) to get real-time `RuleEvent`s as the LLM generates tokens:
+
+```python
+from pygbnf import Grammar, GrammarLLM, select, one_or_more
+
+g = Grammar()
+
+@g.rule
+def name():
+    """A person's name."""
+    return one_or_more(select("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ "))
+
+@g.rule
+def greeting():
+    """A greeting message."""
+    return select(["hello", "hi", "hey"]) + " " + name()
+
+g.start("greeting")
+
+llm = GrammarLLM("http://localhost:8080/v1")
+
+for token, events in llm.stream(
+    messages=[{"role": "user", "content": "Greet Alice."}],
+    grammar=g,
+    match=True,
+):
+    print(token, end="", flush=True)
+    if events:
+        for ev in events:
+            print(f"\n  ← [{ev.rule}] {ev.text!r} (doc: {ev.doc})")
+print()
+```
+
+Each `RuleEvent` carries:
+- `rule` — the matched rule name
+- `text` — the matched text
+- `fn` — the original Python function
+- `doc` — the function's docstring
+
+### Non-streaming completion
+
+```python
+text, events = llm.complete(
+    messages=[{"role": "user", "content": "Is the sky blue?"}],
+    grammar=g,
+    match=True,
+)
+print(text)
+for ev in events:
+    print(f"  [{ev.rule}] {ev.text!r}")
+```
+
+### Schema-based grammar with LLM
+
+Combine `grammar_from_type` with `GrammarLLM` to constrain output to a JSON schema:
+
+```python
+from dataclasses import dataclass
+from pygbnf import grammar_from_type, GrammarLLM
+
+@dataclass
+class City:
+    name: str
+    country: str
+    population: int
+
+g = grammar_from_type(City)
+llm = GrammarLLM("http://localhost:8080/v1")
+
+text, _ = llm.complete(
+    messages=[{"role": "user", "content": "Describe Tokyo in JSON."}],
+    grammar=g,
+)
+print(text)
+# → {"name": "Tokyo", "country": "Japan", "population": 13960000}
+```
+
+> **Note:** `GrammarLLM` requires the `openai` package: `pip install openai`.
+> The LLM server must support the `grammar` field in its API (llama.cpp does natively).
+
 ## Architecture
 
 ### AST Nodes
@@ -179,6 +290,7 @@ See the `examples/` directory:
 | `demo_schema.py` | Schema → grammar examples |
 | `demo_hybrid.py` | DSL + Python types mixed |
 | `demo_simple_lang.py` | Mini-language generation with LLM |
+| `demo_vision.py` | Vision + grammar: solve math from an image |
 
 Run any example:
 

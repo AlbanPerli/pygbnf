@@ -212,6 +212,9 @@ class Grammar:
     def from_function_args(self, func) -> RuleReference:
         """Inject rules for a function's arguments as a JSON object.
 
+        Parameters with default values become optional fields in the grammar.
+        Enum-typed parameters produce a named choice sub-rule.
+
         Parameters
         ----------
         func : callable
@@ -227,27 +230,68 @@ class Grammar:
         hints = get_type_hints(func)
         sig = inspect.signature(func)
         dc_fields = []
-        for name, _param in sig.parameters.items():
+        for name, param in sig.parameters.items():
             if name in ('self', 'cls'):
                 continue
-            dc_fields.append((name, hints.get(name, Any)))
+            tp = hints.get(name, Any)
+            if param.default is not inspect.Parameter.empty:
+                dc_fields.append((name, tp, dataclasses.field(default=param.default)))
+            else:
+                dc_fields.append((name, tp))
         ArgsClass = dataclasses.make_dataclass(
             f"{func.__name__}_args", dc_fields,
         )
         return self.from_type(ArgsClass)
 
+    def from_tool_call(self, func) -> Node:
+        """Inject rules for a complete tool-call JSON object.
+
+        Produces a grammar node for::
+
+            {"function": "<func_name>", "arguments": {<args>}}
+
+        Parameters
+        ----------
+        func : callable
+            A function with annotated parameters.
+
+        Returns
+        -------
+        Node
+            A composable node (Sequence) for the full tool-call object.
+        """
+        args_node = self.from_function_args(func)
+        ws = self.ref("ws")
+        name = func.__name__
+        return (
+            "{" + ws
+            + '"function"' + ws + ":" + ws + f'"{name}"' + ws + "," + ws
+            + '"arguments"' + ws + ":" + ws + args_node + ws
+            + "}"
+        )
+
     # ----- build (lazy evaluation) ------------------------------------------
 
     def _ensure_built(self) -> None:
-        """Evaluate all deferred rule bodies (once)."""
+        """Evaluate all deferred rule bodies (once).
+
+        Rules may register new deferred rules during evaluation (e.g.
+        ``from_type`` → ``SchemaCompiler`` adds JSON primitives lazily).
+        We keep iterating until every deferred rule has been resolved.
+        """
         if self._building:
             return
         self._building = True
         try:
-            for name in list(self._rule_order):
-                if self._rules.get(name) is None and name in self._deferred:
-                    body = self._deferred[name]()
-                    self._rules[name] = _normalise(body)
+            # Repeat until no unresolved deferred rules remain.
+            changed = True
+            while changed:
+                changed = False
+                for name in list(self._rule_order):
+                    if self._rules.get(name) is None and name in self._deferred:
+                        body = self._deferred[name]()
+                        self._rules[name] = _normalise(body)
+                        changed = True
         finally:
             self._building = False
 
@@ -262,6 +306,20 @@ class Grammar:
         """Return a mapping ``{rule_name: ast_node}``."""
         self._ensure_built()
         return dict(self._rules)
+
+    @property
+    def rule_functions(self) -> Dict[str, Callable]:
+        """Return a mapping ``{python_name: original_function}`` for every
+        rule registered with the ``@g.rule`` decorator.
+
+        Useful for retrieving the original callable from a rule name (e.g.
+        after receiving a :class:`~pygbnf.matcher.RuleEvent`).
+        """
+        deferred = getattr(self, "_deferred", {})
+        return {
+            gbnf_name.replace("-", "_"): fn
+            for gbnf_name, fn in deferred.items()
+        }
 
     def to_gbnf(self, *, optimize: bool = True) -> str:
         """Compile the grammar into a GBNF string.

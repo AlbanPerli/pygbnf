@@ -89,10 +89,18 @@ from .helpers import (
 # Schema → Grammar generation
 from .schema import (
     SchemaCompiler,
+    describe_tools,
     grammar_from_args,
     grammar_from_function,
+    grammar_from_tool_call,
     grammar_from_type,
 )
+
+# Stream matcher
+from .matcher import GrammarMatcher, RuleEvent, MatchToken
+
+# Unified LLM client
+from .llm import GrammarLLM
 
 __all__ = [
     # Container
@@ -136,9 +144,17 @@ __all__ = [
     "ws_required",
     # Schema
     "SchemaCompiler",
+    "describe_tools",
     "grammar_from_args",
     "grammar_from_function",
+    "grammar_from_tool_call",
     "grammar_from_type",
+    # Matcher
+    "GrammarMatcher",
+    "RuleEvent",
+    "MatchToken",
+    # LLM client
+    "GrammarLLM",
 ]
 
 __version__ = "0.2.0"

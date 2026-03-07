@@ -174,10 +174,18 @@ class SchemaCompiler:
         if is_lit:
             return select([f'"{v}"' if isinstance(v, str) else str(v) for v in values])
 
-        # --- Enum → "value1" | "value2" ---
+        # --- Enum → named sub-rule with alternatives ---
         if _is_enum(tp):
-            members = [f'"{m.value}"' for m in tp]
-            return select(members)
+            rule_name = tp.__name__.lower()
+            if rule_name not in self._registered:
+                self._registered.add(rule_name)
+                members = [f'"{m.value}"' for m in tp]
+
+                @g.rule_named(rule_name)
+                def _enum_rule(_m=members):
+                    return select(_m)
+
+            return g.ref(rule_name)
 
         # --- list[X] → "[" X ("," X)* "]" ---
         is_lst, item_tp = _is_list(tp)
@@ -458,3 +466,90 @@ def grammar_from_args(func: Any, **kwargs: Any) -> Grammar:
     )
 
     return grammar_from_type(ArgsClass, **kwargs)
+
+
+def grammar_from_tool_call(func: Any, **kwargs: Any) -> Grammar:
+    """Generate a GBNF grammar for a complete tool-call JSON object.
+
+    Produces::
+
+        {"function": "<func_name>", "arguments": {<args>}}
+
+    Parameters
+    ----------
+    func : callable
+        A function with annotated parameters.
+
+    Returns
+    -------
+    Grammar
+
+    Examples
+    --------
+    >>> def search(query: str, limit: int = 10) -> None: ...
+    >>> g = grammar_from_tool_call(search)
+    >>> print(g.to_gbnf())  # {"function": "search", "arguments": {"query": ..., "limit": ...}}
+    """
+    g = Grammar(**kwargs)
+
+    @g.rule
+    def root():
+        return g.from_tool_call(func)
+
+    g.start("root")
+    return g
+
+
+def describe_tools(*funcs: Any) -> str:
+    """Return a human-readable description of tool functions.
+
+    Useful for building system prompts that list available tools.
+
+    Parameters
+    ----------
+    *funcs : callable
+        Functions with type annotations and docstrings.
+
+    Returns
+    -------
+    str
+        A formatted multi-line description.
+
+    Examples
+    --------
+    >>> def search(query: str, limit: int = 10) -> str:
+    ...     \"\"\"Search the web.\"\"\"  # noqa
+    ...     ...
+    >>> print(describe_tools(search))
+    - search(query: str, limit: int = 10) — Search the web.
+    """
+    lines = []
+    for fn in funcs:
+        sig = inspect.signature(fn)
+        params = []
+        hints = get_type_hints(fn)
+        for name, param in sig.parameters.items():
+            if name in ("self", "cls"):
+                continue
+            tp = hints.get(name)
+            # For Enum types, show choices instead of opaque type name
+            if tp and _is_enum(tp):
+                choices = "|".join(repr(m.value) for m in tp)
+                tp_name = choices
+            else:
+                tp_name = getattr(tp, "__name__", str(tp)) if tp else "Any"
+            if param.default is not inspect.Parameter.empty:
+                default = param.default
+                if isinstance(default, enum.Enum):
+                    default_str = repr(default.value)
+                else:
+                    default_str = repr(default)
+                params.append(f"{name}: {tp_name} = {default_str}")
+            else:
+                params.append(f"{name}: {tp_name}")
+        doc = (fn.__doc__ or "").strip().split("\n")[0]
+        line = f"- {fn.__name__}({', '.join(params)})"
+        if doc:
+            line += f" \u2014 {doc}"
+        lines.append(line)
+    return "\n".join(lines)

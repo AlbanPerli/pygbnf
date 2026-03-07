@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Démo — Faire écrire du code par un LLM, contraint par la grammaire simple_lang.
+"""Demo — Have an LLM write code constrained by the simple_lang grammar.
 
-Utilise pygbnf pour générer la grammaire GBNF d'un mini-langage de
-programmation, puis demande au LLM de produire du code valide dans ce langage.
+Uses pygbnf to generate the GBNF grammar of a mini programming language,
+then asks the LLM to produce valid code in that language.
 """
 
+import sys
 import time
-import requests
 from openai import OpenAI
 import pygbnf as cfg
 from pygbnf import (
@@ -16,35 +16,35 @@ from pygbnf import (
     zero_or_more,
     optional,
     repeat,
+    GrammarLLM,
 )
 
 # =====================================================================
-# Grammaire du mini-langage
+# Grammar definition
 # =====================================================================
 
 g = cfg.Grammar()
 
 # -- Whitespace & tokens ---------------------------------------------------
-# Borner le whitespace pour éviter que le LLM boucle en émettant des espaces
 
 @g.rule
 def sp():
-    """Espaces horizontaux optionnels (pas de newline)."""
+    """Optional horizontal spaces (no newline)."""
     return repeat(select(" \t"), 0, 8)
 
 @g.rule
 def nl():
-    """Un saut de ligne."""
+    """A single newline."""
     return select(["\r\n", "\n"])
 
 @g.rule
 def ws():
-    """Whitespace borné : espaces + sauts de ligne, max 20 chars."""
+    """Bounded whitespace: spaces + newlines, max 20 chars."""
     return repeat(select(" \t\n\r"), 0, 20)
 
 @g.rule
 def ws1():
-    """Au moins un whitespace, borné."""
+    """At least one whitespace char, bounded."""
     return select(" \t\n\r") + repeat(select(" \t\n\r"), 0, 10)
 
 @g.rule
@@ -173,42 +173,26 @@ def program():
 
 g.start("program")
 
-t0 = time.perf_counter()
-grammar = g.to_gbnf()
-t_compile = time.perf_counter() - t0
-
-print("=" * 60)
-print("Grammaire GBNF du mini-langage")
-print("=" * 60)
-print(grammar)
-print("=" * 60)
-print(f"Compilation de la grammaire : {t_compile*1000:.1f} ms")
-
 # =====================================================================
-# Appel au LLM contraint par la grammaire
+# Call the LLM with grammar constraints
 # =====================================================================
 
-LLAMA_BASE_URL = "http://localhost:8080"
+LLAMA_BASE_URL = "http://localhost:8080/v1"
 
-# On utilise l'endpoint natif /completion de llama-server qui applique
-# toujours la grammaire, contrairement à /v1/chat/completions qui
-# l'ignore avec certains modèles.
+SYSTEM_PROMPT = """\
+You are an expert programmer in a small custom language with the following syntax:
 
-PROMPT = """\
-Écris un programme dans le mini-langage suivant.
+  fn name(args) { body }     — function definition
+  let x = expr;              — variable declaration
+  x = expr;                  — assignment
+  if (cond) { } else { }     — conditional
+  while (cond) { }           — loop
+  return expr;               — return value
+  print(expr, ...);          — print output
+  name(args)                 — function call
+  operators: + - * / % == != < > <= >=
 
-Syntaxe du langage :
-  fn name(args) { body }     — définition de fonction
-  let x = expr;              — déclaration de variable
-  x = expr;                  — assignation
-  if (cond) { } else { }     — condition
-  while (cond) { }           — boucle
-  return expr;               — retour de valeur
-  print(expr, ...);          — affichage
-  name(args)                 — appel de fonction
-  opérateurs : + - * / % == != < > <= >=
-
-Exemple de programme valide :
+Example of a valid program:
 fn factorial(n) {
   if (n <= 1) {
     return 1;
@@ -228,51 +212,29 @@ fn main() {
   return i;
 }
 
-done;
+You always reply with ONLY the program code, nothing else."""
 
-Maintenant, écris un programme qui :
-- définit une fonction main() qui affiche les nombres de 1 à 10.
-- tu finis le programme par l'instruction "done;" pour indiquer que c'est la fin.
+USER_PROMPT = """\
+Write a program that defines a main() function which prints the numbers from 1 to 10."""
 
-Programme :
-"""
+llm = GrammarLLM(LLAMA_BASE_URL)
 
-print("\nEnvoi de la requête au LLM avec contrainte grammaticale...\n")
+messages = [
+    {"role": "system", "content": SYSTEM_PROMPT},
+    {"role": "user", "content": USER_PROMPT},
+]
 
-t1 = time.perf_counter()
-response = requests.post(
-    f"{LLAMA_BASE_URL}/completion",
-    json={
-        "prompt": PROMPT,
-        "grammar": grammar,
-        "n_predict": 96,
-        "temperature": 0.0,
-        "stop": ["\n\n\n"],  # arrêter après 2 lignes vides (fin du programme)
-    },
-)
-t_gen = time.perf_counter() - t1
-
-data = response.json()
-code = data.get("content", "")
-timings = data.get("timings", {})
-tokens_predicted = data.get("tokens_predicted", 0)
-tokens_evaluated = data.get("tokens_evaluated", 0)
-
-print("=== Code généré par le LLM ===")
-print(code)
-print("==============================")
-print(f"\n--- Mesures ---")
-print(f"Compilation grammaire : {t_compile*1000:.1f} ms")
-print(f"Génération LLM        : {t_gen:.2f} s")
-print(f"Tokens prompt         : {tokens_evaluated}")
-print(f"Tokens completion     : {tokens_predicted}")
-if tokens_predicted and t_gen > 0:
-    tps = tokens_predicted / t_gen
-    print(f"Débit                 : {tps:.1f} tokens/s")
-if timings:
-    prompt_ms = timings.get("prompt_ms", 0)
-    predicted_ms = timings.get("predicted_ms", 0)
-    pred_per_s = timings.get("predicted_per_second", 0)
-    print(f"Temps prompt (serveur): {prompt_ms:.0f} ms")
-    print(f"Temps génération      : {predicted_ms:.0f} ms")
-    print(f"Débit (serveur)       : {pred_per_s:.1f} tokens/s")
+for token, events in llm.stream(
+    messages,
+    grammar=g,
+    temperature=0,
+    n_predict=96,
+    stop=["\n\n\n"],
+):
+    sys.stdout.write(token)
+    sys.stdout.flush()
+    if events:
+        for ev in events:
+            text = ev.text if len(ev.text) <= 60 else ev.text[:57] + "..."
+            doc = f"  ({ev.doc.strip()})" if ev.doc else ""
+            print(f"\n  ✅ [{ev.rule}] {text}{doc}", end="")
