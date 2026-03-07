@@ -102,6 +102,9 @@ from .matcher import GrammarMatcher, RuleEvent, MatchToken
 # Unified LLM client
 from .llm import GrammarLLM
 
+# High-level tool calling
+from .toolkit import Toolkit
+
 __all__ = [
     # Container
     "Grammar",
@@ -155,6 +158,8 @@ __all__ = [
     "MatchToken",
     # LLM client
     "GrammarLLM",
+    # Toolkit
+    "Toolkit",
 ]
 
 __version__ = "0.2.0"
