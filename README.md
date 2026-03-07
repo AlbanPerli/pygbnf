@@ -170,6 +170,58 @@ print(text)
 # → {"name": "Tokyo", "country": "Japan", "population": 13960000}
 ```
 
+### Tool calling with Toolkit
+
+`Toolkit` is a decorator-based tool registry. Register functions with `@toolkit.tool`, then pass the toolkit to `llm.stream()` or `llm.complete()` — the grammar and system prompt are injected automatically.
+
+```python
+import enum
+from pygbnf import GrammarLLM, Toolkit
+
+toolkit = Toolkit()
+
+class Units(enum.Enum):
+    CELSIUS = "celsius"
+    FAHRENHEIT = "fahrenheit"
+
+@toolkit.tool
+def get_weather(city: str, units: Units = Units.CELSIUS) -> str:
+    """Get current weather for a city."""
+    return f"22° {units.value} in {city}"
+
+@toolkit.tool
+def search_web(query: str, max_results: int = 5) -> str:
+    """Search the web."""
+    return f"Found {max_results} results for {query!r}"
+
+llm = GrammarLLM("http://localhost:8080/v1")
+
+# Stream with toolkit — grammar + system prompt auto-injected
+result = ""
+for token, _ in llm.stream(
+    messages=[{"role": "user", "content": "Weather in Tokyo?"}],
+    toolkit=toolkit,
+):
+    print(token, end="", flush=True)
+    result += token
+
+# Dispatch the JSON result to the matching function
+output = toolkit.dispatch(result)
+print(output)  # → "22° celsius in Tokyo"
+```
+
+The toolkit:
+- **Builds a GBNF grammar** constraining the LLM to produce `{"function": "...", "arguments": {...}}` with only registered tool names and typed arguments
+- **Generates a system prompt** listing available tools with signatures and docstrings
+- **Dispatches** the parsed JSON to the right function, converting enum strings back to Python `Enum` instances automatically
+
+You can also use `llm.tool_call()` as a one-liner that streams + dispatches:
+
+```python
+output = llm.tool_call(toolkit, "Weather in Tokyo?")
+print(output)  # → "22° celsius in Tokyo"
+```
+
 > **Note:** `GrammarLLM` requires the `openai` package: `pip install openai`.
 > The LLM server must support the `grammar` field in its API (llama.cpp does natively).
 
