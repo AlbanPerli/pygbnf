@@ -2,8 +2,11 @@
 
 A composable Python DSL for building **GBNF grammars** compatible with [llama.cpp](https://github.com/ggml-org/llama.cpp).
 
-Define context-free grammars using expressive Python functions, 
-then compile them into valid GBNF strings for constrained LLM generation.
+1) Define [context-free grammars](https://en.wikipedia.org/wiki/Context-free_grammar) using expressive Python functions, 
+
+2) Compile them into valid `G`[BNF](https://en.wikipedia.org/wiki/Backus–Naur_form) strings for constrained LLM generation.
+
+3) Real-time rule matching during inference.
 
 ## Quick Start
 
