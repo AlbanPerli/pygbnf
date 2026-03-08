@@ -6,6 +6,8 @@ A composable Python DSL for building **GBNF grammars** compatible with [llama.cp
 
 2) Compile them into valid `G`[BNF](https://en.wikipedia.org/wiki/Backus–Naur_form) strings for constrained LLM generation.
 
+3) Real-time rule matching during inference.
+
 ## Quick Start
 
 ```python
