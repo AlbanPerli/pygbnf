@@ -385,7 +385,7 @@ print(g.to_gbnf())
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.8+
 - No external dependencies
 
 ## Acknowledgements
