@@ -173,12 +173,13 @@ class ThompsonBuilder:
         if rule_name not in self.rules:
             raise KeyError(f"Unknown rule: {rule_name!r}")
         frag = self._build(self.rules[rule_name])
-        return NFA(
+        nfa = NFA(
             start=frag.start,
             accepts=set(frag.accepts),
             edges=list(self.edges),
             rule_links=list(self.rule_links),
         )
+        return _simplify_nfa(nfa)
 
     def _build(self, node: Node) -> Fragment:
         if isinstance(node, RuleReference):
@@ -382,6 +383,161 @@ class ThompsonBuilder:
 
 
 # ============================================================
+# Epsilon simplification
+# ============================================================
+
+def _simplify_nfa(nfa: NFA) -> NFA:
+    """Remove unnecessary epsilon transitions by contracting pass-through states.
+
+    A state is contractable when it is neither start nor accept and serves
+    only as an epsilon relay — i.e. it has exactly one incoming epsilon and
+    no other incoming edges, OR exactly one outgoing epsilon and no other
+    outgoing edges.  In both cases the state can be merged away.
+
+    The pass is repeated until no more contractions are possible.
+    """
+    edges = list(nfa.edges)
+    start = nfa.start
+    accepts = set(nfa.accepts)
+    rule_links = list(nfa.rule_links)
+
+    # Build a union-find to track merged states
+    parent: Dict[int, int] = {}
+
+    def find(x: int) -> int:
+        while parent.get(x, x) != x:
+            parent[x] = parent.get(parent[x], parent[x])
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int, keep: int) -> None:
+        """Merge a and b, keeping `keep` as the representative."""
+        a, b = find(a), find(b)
+        if a == b:
+            return
+        discard = b if keep == a else a
+        parent[discard] = keep
+
+    protected = {start} | accepts
+
+    changed = True
+    while changed:
+        changed = False
+
+        # Rewrite edges through union-find
+        for e in edges:
+            e.src = find(e.src)
+            e.dst = find(e.dst)
+        for rl in rule_links:
+            rl.src_state = find(rl.src_state)
+            rl.dst_state = find(rl.dst_state)
+
+        # Remove self-loops on epsilon
+        edges = [e for e in edges if not (e.label is None and e.src == e.dst)]
+
+        # Index
+        all_states: Set[int] = {start} | accepts
+        for e in edges:
+            all_states.add(e.src)
+            all_states.add(e.dst)
+
+        out_eps: Dict[int, List[Edge]] = {s: [] for s in all_states}
+        out_lab: Dict[int, List[Edge]] = {s: [] for s in all_states}
+        in_eps: Dict[int, List[Edge]] = {s: [] for s in all_states}
+        in_lab: Dict[int, List[Edge]] = {s: [] for s in all_states}
+
+        for e in edges:
+            if e.label is None:
+                out_eps[e.src].append(e)
+                in_eps[e.dst].append(e)
+            else:
+                out_lab[e.src].append(e)
+                in_lab[e.dst].append(e)
+
+        for s in all_states:
+            if s in protected:
+                continue
+
+            # Case 1: s has exactly one outgoing epsilon, no outgoing labelled
+            # edges, and is not a target of a rule_link.
+            # Merge s into the epsilon target — all incoming edges of s now
+            # point to the target.
+            if (
+                len(out_eps[s]) == 1
+                and not out_lab[s]
+            ):
+                target = out_eps[s][0].dst
+                if target != s and find(target) not in protected | {find(s)}:
+                    # Safe: merge s → target (keep target)
+                    union(s, target, keep=find(target))
+                    changed = True
+                    break
+                elif target != s:
+                    # target is protected — merge target direction reversed:
+                    # redirect all of s's incoming to target, remove the epsilon
+                    union(s, target, keep=find(target))
+                    changed = True
+                    break
+
+            # Case 2: s has exactly one incoming epsilon, no incoming labelled
+            # edges.  Merge s into the epsilon source.
+            if (
+                len(in_eps[s]) == 1
+                and not in_lab[s]
+            ):
+                source = in_eps[s][0].src
+                if source != s:
+                    union(s, source, keep=find(source))
+                    changed = True
+                    break
+
+    # Final rewrite
+    for e in edges:
+        e.src = find(e.src)
+        e.dst = find(e.dst)
+    for rl in rule_links:
+        rl.src_state = find(rl.src_state)
+        rl.dst_state = find(rl.dst_state)
+    start = find(start)
+    accepts = {find(a) for a in accepts}
+
+    # Remove epsilon self-loops and deduplicate
+    seen: Set[tuple] = set()
+    clean: List[Edge] = []
+    for e in edges:
+        if e.label is None and e.src == e.dst:
+            continue
+        key = (e.src, e.dst, e.label, e.kind)
+        if key not in seen:
+            seen.add(key)
+            clean.append(e)
+
+    # Renumber states contiguously
+    live: Set[int] = {start} | accepts
+    for e in clean:
+        live.add(e.src)
+        live.add(e.dst)
+    for rl in rule_links:
+        live.add(rl.src_state)
+        live.add(rl.dst_state)
+
+    remap = {old: i for i, old in enumerate(sorted(live))}
+    for e in clean:
+        e.src = remap[e.src]
+        e.dst = remap[e.dst]
+    for rl in rule_links:
+        rl.src_state = remap[rl.src_state]
+        rl.dst_state = remap[rl.dst_state]
+
+    return NFA(
+        start=remap[start],
+        accepts={remap[a] for a in accepts},
+        edges=clean,
+        rule_links=rule_links,
+    )
+
+
+# ============================================================
 # Public API
 # ============================================================
 
@@ -433,7 +589,7 @@ def grammar_to_nfa_dot(
     name: str = "Grammar",
     compact_literals: bool = True,
     allow_unknown_nodes_as_special: bool = True,
-    show_inter_rule_links: bool = True,
+    show_inter_rule_links: bool = False,
     expand_rules: Optional[Set[str]] = None,
     expand_charclasses: bool = True,
 ) -> str:
@@ -575,7 +731,7 @@ def write_grammar_dot(
     name: str = "Grammar",
     compact_literals: bool = True,
     allow_unknown_nodes_as_special: bool = True,
-    show_inter_rule_links: bool = True,
+    show_inter_rule_links: bool = False,
     expand_rules: Optional[Set[str]] = None,
     expand_charclasses: bool = True,
 ) -> Path:
@@ -633,7 +789,7 @@ def write_grammar_svg(
     name: str = "Grammar",
     compact_literals: bool = True,
     allow_unknown_nodes_as_special: bool = True,
-    show_inter_rule_links: bool = True,
+    show_inter_rule_links: bool = False,
     keep_dot: bool = True,
     expand_rules: Optional[Set[str]] = None,
     expand_charclasses: bool = True,

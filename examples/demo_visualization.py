@@ -52,7 +52,6 @@ try:
         g,
         output_svg_path="arithmetic_nfa.svg",
         name="Arithmetic expressions",
-        keep_dot=True,
     )
     print(f"Wrote: {svg} (+ .dot)")
 except RuntimeError as e:
