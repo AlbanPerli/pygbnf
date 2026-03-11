@@ -105,6 +105,17 @@ from .llm import GrammarLLM
 # High-level tool calling
 from .toolkit import Toolkit
 
+# Visualization (DOT / SVG export)
+from .visualization import (
+    get_user_rules,
+    grammar_rule_to_nfa_dot,
+    grammar_to_nfa_dot,
+    render_dot_to_svg,
+    write_grammar_dot,
+    write_grammar_svg,
+    write_rule_dot,
+)
+
 __all__ = [
     # Container
     "Grammar",
@@ -160,6 +171,14 @@ __all__ = [
     "GrammarLLM",
     # Toolkit
     "Toolkit",
+    # Visualization
+    "get_user_rules",
+    "grammar_rule_to_nfa_dot",
+    "grammar_to_nfa_dot",
+    "render_dot_to_svg",
+    "write_grammar_dot",
+    "write_grammar_svg",
+    "write_rule_dot",
 ]
 
 __version__ = "0.2.0"
