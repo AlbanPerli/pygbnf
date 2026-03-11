@@ -11,6 +11,31 @@ A composable Python DSL for building **GBNF grammars** compatible with [llama.cp
 ## Quick Start
 
 ```python
+from pygbnf import Grammar, GrammarLLM, select
+
+g = Grammar()
+
+@g.rule
+def answer():
+    return select(["yes", "no", "maybe"])
+
+g.start("answer")
+
+llm = GrammarLLM("http://localhost:8080/v1")
+
+for token, _ in llm.stream(
+    messages=[{"role": "user", "content": "Is the sky blue?"}],
+    grammar=g,
+):
+    print(token, end="", flush=True)
+print()
+```
+
+The grammar constrains the LLM output — it can only produce `yes`, `no`, or `maybe`.
+
+## Guidance-Style GBNF
+
+```python
 import pygbnf as cfg
 from pygbnf import select, one_or_more, zero_or_more
 
@@ -68,31 +93,6 @@ pip install -e .
 ## LLM Usage
 
 pygbnf includes `GrammarLLM`, a thin wrapper around any OpenAI-compatible endpoint (llama.cpp, vLLM, Ollama…) that injects the GBNF grammar automatically.
-
-### Basic constrained generation
-
-```python
-from pygbnf import Grammar, GrammarLLM, select
-
-g = Grammar()
-
-@g.rule
-def answer():
-    return select(["yes", "no", "maybe"])
-
-g.start("answer")
-
-llm = GrammarLLM("http://localhost:8080/v1")
-
-for token, _ in llm.stream(
-    messages=[{"role": "user", "content": "Is the sky blue?"}],
-    grammar=g,
-):
-    print(token, end="", flush=True)
-print()
-```
-
-The grammar constrains the LLM output — it can only produce `yes`, `no`, or `maybe`.
 
 ### Streaming with rule matching
 
