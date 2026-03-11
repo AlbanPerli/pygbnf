@@ -8,7 +8,21 @@ A composable Python DSL for building **GBNF grammars** compatible with [llama.cp
 
 3) Real-time rule matching during inference.
 
+## Installation
+
+```bash
+pip install pygbnf
+```
+
 ## Quick Start
+
+Start llama-server with your favorite GGUF model.
+
+```cli
+$ llama-server -m LFM2-8B-A1B-Q4_K_M.gguf
+```
+
+Build grammar and constraint the model.
 
 ```python
 from pygbnf import Grammar, GrammarLLM, select
@@ -23,12 +37,12 @@ g.start("answer")
 
 llm = GrammarLLM("http://localhost:8080/v1")
 
-for token, _ in llm.stream(
+text, _ = llm.complete(
     messages=[{"role": "user", "content": "Is the sky blue?"}],
-    grammar=g,
-):
-    print(token, end="", flush=True)
-print()
+    grammar=g
+)
+
+print(text)
 ```
 
 The grammar constrains the LLM output — it can only produce `yes`, `no`, or `maybe`.
@@ -74,20 +88,6 @@ expression ::=
     number
   | expression " "* operator " "* expression
   | "(" expression ")"
-```
-
-## Installation
-
-```bash
-pip install pygbnf
-```
-
-Or install from source:
-
-```bash
-git clone https://github.com/al/pygbnf.git
-cd pygbnf
-pip install -e .
 ```
 
 ## LLM Usage
