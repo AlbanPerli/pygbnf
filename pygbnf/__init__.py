@@ -100,7 +100,7 @@ from .schema import (
 from .matcher import GrammarMatcher, RuleEvent, MatchToken
 
 # Unified LLM client
-from .llm import GrammarLLM
+from .llm import AdaptiveCallback, GrammarLLM
 
 # High-level tool calling
 from .toolkit import Toolkit
@@ -168,6 +168,7 @@ __all__ = [
     "RuleEvent",
     "MatchToken",
     # LLM client
+    "AdaptiveCallback",
     "GrammarLLM",
     # Toolkit
     "Toolkit",

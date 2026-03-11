@@ -46,10 +46,13 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Union
 
 from .grammar import Grammar
 from .matcher import GrammarMatcher, RuleCallback, RuleEvent
+
+# Type for adaptive_stream callbacks: return a Grammar to switch, or None.
+AdaptiveCallback = Callable[["RuleEvent"], Optional[Grammar]]
 
 
 class GrammarLLM:
@@ -307,6 +310,154 @@ class GrammarLLM:
             events = matcher.feed(text)
 
         return (text, events)
+
+    # ── Adaptive streaming ─────────────────────────────────────────
+
+    def adaptive_stream(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        grammar: Grammar,
+        on_switch: Dict[str, AdaptiveCallback],
+        match: bool = False,
+        only: Optional[Set[str]] = None,
+        exclude: Optional[Set[str]] = None,
+        on: Optional[Dict[str, RuleCallback]] = None,
+        temperature: float = 0,
+        n_predict: Optional[int] = None,
+        max_switches: int = 10,
+        **kwargs: Any,
+    ) -> Iterator[Tuple[str, Optional[List[RuleEvent]]]]:
+        """Streaming with dynamic grammar switching on rule matches.
+
+        Works like :meth:`stream`, but when a rule listed in *on_switch*
+        is matched, its callback is invoked.  If the callback returns a
+        :class:`Grammar`, the current stream is interrupted and a new
+        one is started with the new grammar.  The text generated so far
+        is injected as an assistant prefix so the server can leverage its
+        KV cache.
+
+        Parameters
+        ----------
+        messages : list[dict]
+            OpenAI-format message list.
+        grammar : Grammar
+            Initial GBNF grammar.
+        on_switch : dict[str, AdaptiveCallback]
+            Mapping of rule names (Python names) to callbacks.  Each
+            callback receives a :class:`RuleEvent` and returns either a
+            :class:`Grammar` (to switch) or ``None`` (to continue).
+        match : bool
+            Also enable matching for all rules (not just *on_switch* keys).
+        only / exclude / on
+            Additional matcher configuration — forwarded to
+            :class:`GrammarMatcher`.
+        temperature : float
+            Sampling temperature.
+        n_predict : int | None
+            Maximum tokens per segment.
+        max_switches : int
+            Safety limit on the number of grammar switches (default 10).
+        **kwargs
+            Forwarded to ``client.chat.completions.create()``.
+
+        Yields
+        ------
+        tuple[str, list[RuleEvent] | None]
+            Same as :meth:`stream`.
+
+        Notes
+        -----
+        - Each grammar switch creates a new HTTP request.  Servers with
+          KV-cache prefix matching (e.g. llama-server) will handle this
+          efficiently.
+        - The new grammar must be compatible with the text already
+          generated — otherwise the server may produce unexpected output.
+        """
+        current_grammar = grammar
+        accumulated = ""
+        switches = 0
+
+        while True:
+            # Merge on_switch keys into the matcher's tracked rules
+            switch_rules = set(on_switch.keys())
+            merged_only = (only | switch_rules) if only is not None else None
+            # Ensure switch rules are not excluded
+            merged_exclude = (exclude - switch_rules) if exclude else None
+
+            # Build messages with accumulated prefix
+            if accumulated:
+                stream_messages = [
+                    *messages,
+                    {"role": "assistant", "content": accumulated},
+                ]
+            else:
+                stream_messages = list(messages)
+
+            gbnf = current_grammar.to_gbnf()
+            matcher = GrammarMatcher(
+                current_grammar,
+                only=merged_only,
+                exclude=merged_exclude,
+            )
+            # Register regular callbacks
+            if on:
+                for rule_name, cb in on.items():
+                    matcher.on(rule_name, cb)
+
+            self._matcher = matcher
+            self._buffer = ""
+
+            extra_body = kwargs.pop("extra_body", {}) or {}
+            extra_body["grammar"] = gbnf
+            if n_predict is not None:
+                extra_body["n_predict"] = n_predict
+
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=stream_messages,
+                temperature=temperature,
+                stream=True,
+                extra_body=extra_body,
+                **kwargs,
+            )
+
+            new_grammar: Grammar | None = None
+
+            for chunk in response:
+                tok = chunk.choices[0].delta.content or ""
+                if not tok:
+                    continue
+
+                events = matcher.feed(tok)
+                accumulated += tok
+
+                # Check if any switch callback wants to change grammar
+                if events and new_grammar is None:
+                    for ev in events:
+                        py_name = ev.rule
+                        if py_name in on_switch:
+                            result = on_switch[py_name](ev)
+                            if isinstance(result, Grammar):
+                                new_grammar = result
+                                break
+
+                yield (tok, events if events else None)
+
+                if new_grammar is not None:
+                    # Close the current response iterator
+                    response.close()
+                    break
+
+            if new_grammar is None:
+                # Stream finished normally
+                return
+
+            # Switch grammar and loop
+            switches += 1
+            if switches >= max_switches:
+                return
+            current_grammar = new_grammar
 
     # ── Tool calling convenience ─────────────────────────────────────
 
