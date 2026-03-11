@@ -11,7 +11,16 @@ A composable Python DSL for building **GBNF grammars** compatible with [llama.cp
 ## Installation
 
 ```bash
-pip install pygbnf
+pip install pygbnf          # core DSL only
+pip install pygbnf[llm]     # + openai (for GrammarLLM)
+pip install pygbnf[all]     # everything
+```
+
+For grammar visualization (DOT / SVG export), install [Graphviz](https://graphviz.org/):
+
+```bash
+brew install graphviz   # macOS
+apt install graphviz    # Debian / Ubuntu
 ```
 
 ## Quick Start
@@ -341,11 +350,11 @@ See the `examples/` directory:
 | `json_grammar.py` | Full JSON grammar |
 | `simple_lang.py` | A small programming language |
 | `token_demo.py` | Token-level constraints |
-| `demo_llm.py` | LLM constrained generation (requires llama-server) |
 | `demo_schema.py` | Schema → grammar examples |
-| `demo_hybrid.py` | DSL + Python types mixed |
+| `demo_enum_select.py` | Enum-based selection |
 | `demo_simple_lang.py` | Mini-language generation with LLM |
 | `demo_vision.py` | Vision + grammar: solve math from an image |
+| `demo_visualization.py` | Export grammar NFA as DOT / SVG |
 
 Run any example:
 
@@ -383,10 +392,43 @@ g = grammar_from_args(search)
 print(g.to_gbnf())
 ```
 
+## Visualization
+
+Export any grammar as an NFA diagram in DOT or SVG format:
+
+```python
+import pygbnf as cfg
+from pygbnf import select, one_or_more, optional
+from pygbnf.visualization import write_grammar_svg
+
+g = cfg.Grammar()
+
+@g.rule
+def number():
+    return optional("-") + one_or_more(select("0123456789"))
+
+@g.rule
+def operator():
+    return select(["+", "-", "*", "/"])
+
+@g.rule
+def expression():
+    atom = select([number(), "(" + expression() + ")"])
+    return atom + cfg.zero_or_more(cfg.group(" " + operator() + " " + expression()))
+
+g.start("expression")
+
+# Generates .dot + .svg (requires Graphviz)
+write_grammar_svg(g, "arithmetic.svg")
+```
+
+When `rule_names` is omitted, only user-defined rules are included (auto-generated infrastructure rules like `ws`, `json-string`, etc. are filtered out).
+
 ## Requirements
 
 - Python 3.8+
-- No external dependencies
+- **Optional:** `openai>=1.0` for `GrammarLLM` (`pip install pygbnf[llm]`)
+- **Optional:** [Graphviz](https://graphviz.org/) CLI for SVG rendering
 
 ## Acknowledgements
 

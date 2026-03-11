@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] — 2026-03-11
+
+### Added
+- `visualization` module — export grammars as NFA diagrams in DOT / SVG format
+  - `grammar_rule_to_nfa_dot()`, `grammar_to_nfa_dot()` — generate Graphviz DOT strings
+  - `write_rule_dot()`, `write_grammar_dot()` — write `.dot` files
+  - `render_dot_to_svg()`, `write_grammar_svg()` — render to SVG (requires Graphviz CLI)
+  - `get_user_rules()` — auto-detect user-defined rules (excludes infrastructure rules)
+  - When `rule_names=None` (default), visualization functions automatically select user rules
+- `GrammarLLM` — unified OpenAI-compatible LLM client with grammar-constrained streaming
+- `Toolkit` — decorator-based tool registry with grammar-constrained calling and auto-dispatch
+- `Grammar.from_tool_call()` — inject rules for a complete tool-call JSON object
+- `grammar_from_tool_call()`, `describe_tools()` in `schema` module
+- New example: `demo_visualization.py`
+
+### Changed
+- Optional dependencies declared in `pyproject.toml` (`pip install pygbnf[llm]`, `pip install pygbnf[all]`)
+
 ## [0.2.0] — 2026-03-06
 
 ### Added

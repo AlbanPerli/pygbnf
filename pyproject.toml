@@ -24,6 +24,13 @@ classifiers = [
     "Typing :: Typed",
 ]
 
+dependencies = []
+
+[project.optional-dependencies]
+llm = ["openai>=1.0"]
+viz = []  # requires Graphviz CLI: brew install graphviz / apt install graphviz
+all = ["openai>=1.0"]
+
 [project.urls]
 Homepage = "https://github.com/al/pygbnf"
 Repository = "https://github.com/al/pygbnf"

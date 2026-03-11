@@ -1020,7 +1020,7 @@ check("select long str", isinstance(select("abcdefghijklmnop"), CharacterClass),
 
 section("Exports publics")
 
-check("version", cfg.__version__, "0.2.0")
+check("version", cfg.__version__, "0.3.0")
 check("Grammar accessible", cfg.Grammar is Grammar, True)
 check("select accessible", cfg.select is select, True)
 check("grammar_from_type accessible", cfg.grammar_from_type is grammar_from_type, True)
