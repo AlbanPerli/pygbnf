@@ -296,7 +296,7 @@ class _AllDefaults:
 g_req = grammar_from_type(_AllRequired)
 gbnf_req = g_req.to_gbnf()
 # Find the dataclass rule line and check it has no )?
-dc_line_req = [l for l in gbnf_req.splitlines() if "allrequired" in l and "::=" in l][0]
+dc_line_req = [l for l in gbnf_req.splitlines() if "AllRequired" in l and "::=" in l][0]
 check("all required — no ()?", ")?" not in dc_line_req, True)
 check("all required — has name", '\\"name\\"' in gbnf_req, True)
 check("all required — has age", '\\"age\\"' in gbnf_req, True)

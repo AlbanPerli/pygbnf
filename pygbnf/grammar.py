@@ -243,10 +243,10 @@ class Grammar:
         )
         return self.from_type(ArgsClass)
 
-    def from_tool_call(self, func) -> Node:
+    def from_tool_call(self, func) -> RuleReference:
         """Inject rules for a complete tool-call JSON object.
 
-        Produces a grammar node for::
+        Creates a **named rule** ``<func_name>`` producing::
 
             {"function": "<func_name>", "arguments": {<args>}}
 
@@ -257,18 +257,24 @@ class Grammar:
 
         Returns
         -------
-        Node
-            A composable node (Sequence) for the full tool-call object.
+        RuleReference
+            A reference to the named tool-call rule.
         """
         args_node = self.from_function_args(func)
         ws = self.ref("ws")
         name = func.__name__
-        return (
+        body = (
             "{" + ws
             + '"function"' + ws + ":" + ws + f'"{name}"' + ws + "," + ws
             + '"arguments"' + ws + ":" + ws + args_node + ws
             + "}"
         )
+
+        @self.rule_named(name)
+        def _tool_rule(_body=body):
+            return _body
+
+        return self.ref(name)
 
     # ----- build (lazy evaluation) ------------------------------------------
 

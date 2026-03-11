@@ -176,7 +176,7 @@ class SchemaCompiler:
 
         # --- Enum → named sub-rule with alternatives ---
         if _is_enum(tp):
-            rule_name = tp.__name__.lower()
+            rule_name = tp.__name__.lstrip("_")
             if rule_name not in self._registered:
                 self._registered.add(rule_name)
                 members = [f'"{m.value}"' for m in tp]
@@ -193,15 +193,20 @@ class SchemaCompiler:
             rule_name = f"{name_hint}_items" if name_hint else "list_items"
             item_node = self._type_to_node(item_tp, f"{name_hint}_item")
 
+            # Cap list size to enum member count when items are Enum
+            max_extra = 50
+            if _is_enum(item_tp):
+                max_extra = len(item_tp) - 1  # first item is mandatory inside optional()
+
             if rule_name not in self._registered:
                 self._registered.add(rule_name)
 
                 @g.rule_named(rule_name)
-                def _list_rule(_it=item_node):
+                def _list_rule(_it=item_node, _max=max_extra):
                     return "[" + g.ref("ws") + optional(group(
                         _it + repeat(group(
                             g.ref("ws") + "," + g.ref("ws") + _it
-                        ), 0, 50)
+                        ), 0, _max)
                     )) + g.ref("ws") + "]"
 
             return g.ref(rule_name)
@@ -281,7 +286,7 @@ class SchemaCompiler:
             { "host": ..., "port": ..., "debug": ... }                # +debug
             { "host": ..., "port": ..., "debug": ..., "timeout": ... }# +timeout
         """
-        rule_name = cls.__name__.lower()
+        rule_name = cls.__name__.lstrip("_")
 
         if rule_name in self._registered:
             return self.g.ref(rule_name)

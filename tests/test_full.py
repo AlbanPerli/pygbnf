@@ -728,7 +728,7 @@ g_outer = grammar_from_type(Outer)
 gbnf_outer = g_outer.to_gbnf()
 check_in("Outer → name", '\\"name\\"', gbnf_outer)
 check_in("Outer → child", '\\"child\\"', gbnf_outer)
-check_in("inner rule", "inner ::=", gbnf_outer)
+check_in("Inner rule", "Inner ::=", gbnf_outer)
 check_in("Inner → value", '\\"value\\"', gbnf_outer)
 
 section("Schema — Dataclass avec list")
@@ -770,12 +770,11 @@ class _AllDefaults:
 # Tous obligatoires → pas de )?
 g_req = grammar_from_type(_AllRequired)
 gbnf_req = g_req.to_gbnf()
-dc_lines_req = [l for l in gbnf_req.splitlines() if "allrequired" in l.lower() and "::=" in l]
-# Peut-être que le nom est all-required ou _allrequired
+dc_lines_req = [l for l in gbnf_req.splitlines() if "AllRequired" in l and "::=" in l]
 if dc_lines_req:
     check_not_in("all required — no )?", ")?", dc_lines_req[0])
 else:
-    check_in("allrequired rule exists", "allrequired", gbnf_req.lower())
+    check_in("AllRequired rule exists", "AllRequired", gbnf_req)
 check_in("all required → name", '\\"name\\"', gbnf_req)
 check_in("all required → age", '\\"age\\"', gbnf_req)
 
@@ -853,7 +852,7 @@ def review():
 
 g_comp.start("review")
 gbnf_comp = g_comp.to_gbnf()
-check_in("from_type → movie rule", "movie ::=", gbnf_comp)
+check_in("from_type → movie rule", "Movie ::=", gbnf_comp)
 check_in("from_type → title", '\\"title\\"', gbnf_comp)
 
 section("Schema — Grammar.from_function_return()")
@@ -870,7 +869,7 @@ def fr_root():
 
 g_fr.start("fr_root")
 gbnf_fr = g_fr.to_gbnf()
-check_in("from_function_return → movie", "movie ::=", gbnf_fr)
+check_in("from_function_return → movie", "Movie ::=", gbnf_fr)
 
 section("Schema — Grammar.from_function_args()")
 

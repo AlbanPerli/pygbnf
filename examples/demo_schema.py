@@ -123,7 +123,7 @@ print("Grammar:\n")
 print(toolkit.grammar.to_gbnf())
 
 QUERIES = [
-    "What's the weather like in Paris (in celsius)?",
+    "What's the weather like in NY (in farenheit)?",
     "Send an urgent email to bob@acme.com about the Q3 report being ready.",
     "Search for 'python GBNF grammar' on the web.",
 ]
