@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] — 2026-03-13
+
+### Added
+- `weighted_select()` combinator — like `select()` but with probability weights that bias the LLM towards preferred alternatives
+- `WeightedAlternative` AST node — stores per-branch weights, transparent in GBNF output (grammar stays a binary filter)
+- `GrammarLLM.compute_logit_bias(grammar)` — walks the AST, tokenizes alternatives **in context** (BPE-aware), and returns a `logit_bias` dict
+- `GrammarLLM.tokenize(text)` — calls the server's `/tokenize` endpoint
+- `bias_scale` parameter on `compute_logit_bias()` (default `10.0`) to control bias magnitude
+- `logit_bias` is automatically injected into `stream()` and `complete()` when the grammar contains weighted alternatives
+- New example: `demo_weighted_select.py` — restaurant chatbot that steers dish suggestions with weights
+
+### Fixed
+- Context-aware tokenization: `compute_logit_bias` now resolves `RuleReference` nodes and accumulates preceding literal text before tokenizing, so BPE merges (e.g. `" red"` vs `"red"`) produce the correct token IDs
+
 ## [0.3.1] — 2026-03-12
 
 ### Added

@@ -33,6 +33,7 @@ from .nodes import (
     RuleReference,
     Sequence,
     TokenReference,
+    WeightedAlternative,
 )
 
 
@@ -66,6 +67,11 @@ def _recurse(node: Node) -> Node:
     """Recursively optimise child nodes."""
     if isinstance(node, Sequence):
         return Sequence(children=[_optimize_node(c) for c in node.children])
+    if isinstance(node, WeightedAlternative):
+        return WeightedAlternative(
+            alternatives=[_optimize_node(a) for a in node.alternatives],
+            weights=node.weights,
+        )
     if isinstance(node, Alternative):
         return Alternative(alternatives=[_optimize_node(a) for a in node.alternatives])
     if isinstance(node, Repeat):

@@ -89,6 +89,22 @@ class Alternative(Node):
 
 
 @dataclass(frozen=True)
+class WeightedAlternative(Alternative):
+    """Alternative with logit-bias weights for preferring certain branches.
+
+    Each weight is a positive float interpreted as a probability multiplier.
+    ``1.0`` is neutral, ``2.0`` doubles relative likelihood, ``0.5`` halves it.
+    Weights are converted to logit biases via ``ln(weight)`` by
+    :class:`~pygbnf.GrammarLLM`.
+
+    In GBNF output this behaves identically to :class:`Alternative` — the
+    grammar remains a binary filter.  Weights are applied as ``logit_bias``
+    on the first distinguishing token of each branch.
+    """
+    weights: tuple = ()  # tuple[float, ...] parallel to alternatives
+
+
+@dataclass(frozen=True)
 class Optional_(Node):
     """An optional node (``child?``)."""
     child: Node = field(default_factory=lambda: Literal(""))

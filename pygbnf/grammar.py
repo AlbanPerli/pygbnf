@@ -24,6 +24,7 @@ from .nodes import (
     Sequence,
     TokenReference,
     CharacterClass,
+    WeightedAlternative,
 )
 
 
@@ -386,6 +387,11 @@ def _normalise(node: object) -> Node:
         return Literal(node)
     if isinstance(node, Sequence):
         return Sequence(children=[_normalise(c) for c in node.children])
+    if isinstance(node, WeightedAlternative):
+        return WeightedAlternative(
+            alternatives=[_normalise(a) for a in node.alternatives],
+            weights=node.weights,
+        )
     if isinstance(node, Alternative):
         return Alternative(alternatives=[_normalise(a) for a in node.alternatives])
     if isinstance(node, Repeat):

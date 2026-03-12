@@ -49,6 +49,7 @@ from .nodes import (
     RuleReference,
     Sequence,
     TokenReference,
+    WeightedAlternative,
 )
 
 # DSL combinators
@@ -58,6 +59,7 @@ from .combinators import (
     optional,
     repeat,
     select,
+    weighted_select,
     zero_or_more,
 )
 
@@ -130,12 +132,14 @@ __all__ = [
     "RuleReference",
     "Sequence",
     "TokenReference",
+    "WeightedAlternative",
     # Combinators
     "group",
     "one_or_more",
     "optional",
     "repeat",
     "select",
+    "weighted_select",
     "zero_or_more",
     # Tokens
     "not_token",
@@ -181,4 +185,4 @@ __all__ = [
     "write_rule_dot",
 ]
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"

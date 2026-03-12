@@ -45,11 +45,25 @@ Usage
 from __future__ import annotations
 
 import json
+import math
 import sys
+import urllib.error
+import urllib.request
 from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple
 
 from .grammar import Grammar
 from .matcher import GrammarMatcher, RuleCallback, RuleEvent
+from .nodes import (
+    Alternative,
+    Group,
+    Literal,
+    Node,
+    Optional_,
+    Repeat,
+    RuleReference,
+    Sequence,
+    WeightedAlternative,
+)
 
 
 class GrammarLLM:
@@ -205,12 +219,15 @@ class GrammarLLM:
         if n_predict is not None:
             extra_body["n_predict"] = n_predict
 
+        logit_bias = self._compute_weight_bias(grammar)
+
         response = self._client.chat.completions.create(
             model=self._model,
             messages=messages,
             temperature=temperature,
             stream=True,
             extra_body=extra_body if extra_body else None,
+            logit_bias=logit_bias,
             **kwargs,
         )
 
@@ -290,12 +307,15 @@ class GrammarLLM:
         if n_predict is not None:
             extra_body["n_predict"] = n_predict
 
+        logit_bias = self._compute_weight_bias(grammar)
+
         response = self._client.chat.completions.create(
             model=self._model,
             messages=messages,
             temperature=temperature,
             stream=False,
             extra_body=extra_body if extra_body else None,
+            logit_bias=logit_bias,
             **kwargs,
         )
 
@@ -381,3 +401,206 @@ class GrammarLLM:
         if on_call:
             on_call(call["function"], call["arguments"])
         return toolkit.dispatch(result)
+
+    # ── Tokenization ─────────────────────────────────────────────────
+
+    def tokenize(self, text: str) -> List[int]:
+        """Tokenize *text* using the server's ``/tokenize`` endpoint.
+
+        Works with llama-server which exposes ``/tokenize`` at the base URL.
+
+        Raises
+        ------
+        RuntimeError
+            If the server does not support ``/tokenize``.
+        """
+        base = str(self._client.base_url).rstrip("/")
+        if base.endswith("/v1"):
+            base = base[:-3]
+
+        url = f"{base}/tokenize"
+        payload = json.dumps({"content": text}).encode()
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+        except (urllib.error.URLError, OSError) as exc:
+            raise RuntimeError(
+                f"Cannot reach {url} — is llama-server running? ({exc})"
+            ) from exc
+
+        return data["tokens"]
+
+    # ── Logit bias from grammar weights ──────────────────────────────
+
+    def compute_logit_bias(
+        self,
+        grammar: Grammar,
+        *,
+        tokenize_fn: Optional[Callable[[str], List[int]]] = None,
+        bias_scale: float = 10.0,
+    ) -> Dict[str, float]:
+        """Extract :class:`WeightedAlternative` nodes and return ``logit_bias``.
+
+        Walks the grammar AST, finds all weighted alternatives, tokenizes
+        the first token of each branch **in context** (with the preceding
+        literal text), and converts weights to logit adjustments via
+        ``bias_scale * ln(weight)``.
+
+        Parameters
+        ----------
+        grammar : Grammar
+            A grammar potentially containing weighted alternatives.
+        tokenize_fn : callable | None
+            ``text → [token_id, ...]``.  Defaults to :meth:`tokenize`.
+        bias_scale : float
+            Multiplier for ``ln(weight)`` adjustments.  With the default
+            of ``10.0``, a weight of ``50`` maps to a bias of ≈ +39
+            and a weight of ``0.05`` maps to ≈ −30.
+
+        Returns
+        -------
+        dict[str, float]
+            ``{token_id_str: bias_value}`` ready for the OpenAI API.
+        """
+        if tokenize_fn is None:
+            tokenize_fn = self.tokenize
+
+        weighted = _collect_weighted(grammar)
+        if not weighted:
+            return {}
+
+        bias: Dict[str, float] = {}
+        for wa, ctx in weighted:
+            ctx_tokens = tokenize_fn(ctx) if ctx else []
+            for alt, weight in zip(wa.alternatives, wa.weights):
+                prefix = _first_literal_prefix(alt)
+                if prefix is None or weight == 1.0:
+                    continue
+                full_tokens = tokenize_fn(ctx + prefix)
+                # Find the first diverging token after the shared context.
+                diff_idx = 0
+                for i in range(min(len(ctx_tokens), len(full_tokens))):
+                    if ctx_tokens[i] != full_tokens[i]:
+                        diff_idx = i
+                        break
+                else:
+                    diff_idx = len(ctx_tokens)
+
+                if diff_idx < len(full_tokens):
+                    tid = str(full_tokens[diff_idx])
+                    b = bias_scale * math.log(weight)
+                    bias[tid] = bias.get(tid, 0.0) + b
+
+        return bias
+
+    # ── Internal: inject weight bias ─────────────────────────────────
+
+    def _compute_weight_bias(
+        self, grammar: Optional[Grammar],
+    ) -> Optional[Dict[str, float]]:
+        """If *grammar* has weighted alternatives, compute logit_bias dict."""
+        if grammar is None:
+            return None
+        try:
+            wb = self.compute_logit_bias(grammar)
+            return wb if wb else None
+        except RuntimeError:
+            return None  # tokenize endpoint unavailable — skip biasing
+
+
+# ── Weighted alternative helpers ─────────────────────────────────────
+
+def _collect_weighted(grammar: Grammar) -> List[Tuple[WeightedAlternative, str]]:
+    """Walk the grammar AST and collect ``(WeightedAlternative, context)`` pairs.
+
+    *context* is the literal text that precedes the weighted node,
+    resolved through :class:`RuleReference` boundaries.  This context is
+    essential for correct BPE tokenization (space merging etc.).
+    """
+    rules = grammar.rules()
+    results: List[Tuple[WeightedAlternative, str]] = []
+    visited: Set[str] = set()
+
+    # Determine the entry-point rule and walk from there so that
+    # RuleReferences carry accumulated literal context.
+    start_name = getattr(grammar, "_start", None) or "root"
+    entry = rules.get(start_name)
+    if entry is not None:
+        visited.add(start_name)
+        _walk_weighted(entry, "", results, rules, visited)
+
+    # Pick up any weighted alternatives in unreachable rules.
+    for name, node in rules.items():
+        if name not in visited:
+            visited.add(name)
+            _walk_weighted(node, "", results, rules, visited)
+
+    return results
+
+
+def _walk_weighted(
+    node: Node,
+    ctx: str,
+    acc: List[Tuple[WeightedAlternative, str]],
+    rules: Dict[str, Node],
+    visited: Set[str],
+) -> None:
+    if isinstance(node, WeightedAlternative):
+        acc.append((node, ctx))
+        # Don't recurse into alternatives — they're individual branches
+    elif isinstance(node, Alternative):
+        for a in node.alternatives:
+            _walk_weighted(a, ctx, acc, rules, visited)
+    elif isinstance(node, Sequence):
+        running_ctx = ctx
+        for child in node.children:
+            _walk_weighted(child, running_ctx, acc, rules, visited)
+            lit = _full_literal_text(child)
+            if lit is not None:
+                running_ctx += lit
+            else:
+                running_ctx = ""  # non-literal breaks context
+    elif isinstance(node, RuleReference):
+        if node.name not in visited:
+            visited.add(node.name)
+            target = rules.get(node.name)
+            if target is not None:
+                _walk_weighted(target, ctx, acc, rules, visited)
+    elif isinstance(node, (Repeat, Optional_, Group)):
+        child = getattr(node, "child", None)
+        if child is not None:
+            _walk_weighted(child, ctx, acc, rules, visited)
+
+
+def _first_literal_prefix(node: Node) -> Optional[str]:
+    """Extract the literal text at the start of a node, or None."""
+    if isinstance(node, Literal):
+        return node.value if node.value else None
+    if isinstance(node, Sequence) and node.children:
+        return _first_literal_prefix(node.children[0])
+    if isinstance(node, Group):
+        return _first_literal_prefix(node.child)
+    if isinstance(node, (Alternative, WeightedAlternative)):
+        return None
+    return None
+
+
+def _full_literal_text(node: Node) -> Optional[str]:
+    """Return the full literal text a node produces, or None if it's dynamic."""
+    if isinstance(node, Literal):
+        return node.value
+    if isinstance(node, Sequence):
+        parts: List[str] = []
+        for child in node.children:
+            t = _full_literal_text(child)
+            if t is None:
+                return None
+            parts.append(t)
+        return "".join(parts)
+    return None

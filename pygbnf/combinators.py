@@ -7,7 +7,7 @@ Provides ``select``, ``one_or_more``, ``zero_or_more``, ``optional``,
 
 from __future__ import annotations
 
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from .nodes import (
     Alternative,
@@ -18,6 +18,7 @@ from .nodes import (
     Optional_,
     Repeat,
     Sequence,
+    WeightedAlternative,
     _coerce,
 )
 
@@ -89,3 +90,47 @@ def repeat(item: Union[str, Node], min: int = 0, max: Optional[int] = None) -> R
 def group(item: Union[str, Node]) -> Group:
     """Wrap *item* in an explicit parenthesised group."""
     return Group(child=_coerce(item))
+
+
+def weighted_select(
+    items: Union[Dict[Union[str, Node], float], List[Union[str, Node]]],
+    *,
+    weights: Optional[List[float]] = None,
+) -> WeightedAlternative:
+    """Create a weighted alternative for logit biasing.
+
+    Behaves like :func:`select` in GBNF output, but stores weights that
+    :class:`~pygbnf.GrammarLLM` translates to ``logit_bias`` values.
+
+    Parameters
+    ----------
+    items : dict[str|Node, float] or list[str|Node]
+        If a dict, keys are alternatives and values are weights.
+        If a list, pass *weights* separately.
+    weights : list[float] | None
+        Required when *items* is a list.  Each weight is a positive float:
+        ``1.0`` = neutral, ``2.0`` = 2\u00d7 more likely, ``0.5`` = 2\u00d7 less likely.
+
+    Examples
+    --------
+    >>> weighted_select({"Paris": 3.0, "Lyon": 1.0, "Marseille": 0.5})
+    >>> weighted_select(["yes", "no"], weights=[2.0, 1.0])
+    """
+    if isinstance(items, dict):
+        alts = [_coerce(k) for k in items.keys()]
+        w = tuple(items.values())
+    else:
+        if weights is None:
+            raise ValueError("weights is required when items is a list")
+        if len(items) != len(weights):
+            raise ValueError(
+                f"items ({len(items)}) and weights ({len(weights)}) "
+                f"must have the same length"
+            )
+        alts = [_coerce(i) for i in items]
+        w = tuple(weights)
+
+    if any(v <= 0 for v in w):
+        raise ValueError("All weights must be positive (> 0)")
+
+    return WeightedAlternative(alternatives=alts, weights=w)
