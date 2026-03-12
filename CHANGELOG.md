@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1] — 2026-03-12
+
+### Added
+- `expand_depth` parameter on all visualization functions (`grammar_to_nfa_dot`, `write_grammar_dot`, `write_grammar_svg`, `grammar_rule_to_nfa_dot`, `write_rule_dot`)
+  - Limits recursive rule expansion depth to prevent combinatorial DOT blowup
+  - Multi-rule functions default to `expand_depth=1` (one level); single-rule functions default to `None` (unlimited)
+
+### Fixed
+- Visualization: deeply nested grammars no longer produce enormous DOT files (e.g. 24 000 → 1 300 lines for a 10-rule equation grammar)
+
 ## [0.3.0] — 2026-03-11
 
 ### Added
