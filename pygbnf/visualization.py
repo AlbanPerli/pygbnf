@@ -158,12 +158,14 @@ class ThompsonBuilder:
         allow_unknown_nodes_as_special: bool = True,
         expand_rules: Optional[Set[str]] = None,
         expand_charclasses: bool = True,
+        max_expand_depth: Optional[int] = None,
     ) -> None:
         self.rules = rules
         self.compact_literals = compact_literals
         self.allow_unknown_nodes_as_special = allow_unknown_nodes_as_special
         self.expand_rules = expand_rules
         self.expand_charclasses = expand_charclasses
+        self.max_expand_depth = max_expand_depth
         self.sf = StateFactory()
         self.edges: List[Edge] = []
         self.rule_links: List[RuleLink] = []
@@ -252,10 +254,15 @@ class ThompsonBuilder:
         if name not in self.rules:
             raise RegularSubsetError(f"Unknown rule reference: {name}")
 
+        depth_ok = (
+            self.max_expand_depth is None
+            or len(self._expand_stack) < self.max_expand_depth
+        )
         if (
             self.expand_rules is not None
             and name in self.expand_rules
             and name not in self._expand_stack
+            and depth_ok
         ):
             self._expand_stack.append(name)
             try:
@@ -549,6 +556,7 @@ def grammar_rule_to_nfa_dot(
     allow_unknown_nodes_as_special: bool = True,
     expand_rules: Optional[Set[str]] = None,
     expand_charclasses: bool = True,
+    expand_depth: Optional[int] = None,
 ) -> str:
     """Convert a single grammar rule to a DOT string (NFA graph).
 
@@ -564,6 +572,9 @@ def grammar_rule_to_nfa_dot(
         Rules to expand inline instead of showing as references.
     expand_charclasses : bool
         If True, expand character classes into individual edges.
+    expand_depth : int | None
+        Maximum depth for recursive rule expansion.  ``None`` means
+        unlimited (fully expand).  ``1`` expands one level, etc.
 
     Returns
     -------
@@ -577,6 +588,7 @@ def grammar_rule_to_nfa_dot(
         allow_unknown_nodes_as_special=allow_unknown_nodes_as_special,
         expand_rules=expand_rules,
         expand_charclasses=expand_charclasses,
+        max_expand_depth=expand_depth,
     )
     nfa = builder.build_rule(rule_name)
     return nfa.to_dot(name=rule_name)
@@ -592,6 +604,7 @@ def grammar_to_nfa_dot(
     show_inter_rule_links: bool = False,
     expand_rules: Optional[Set[str]] = None,
     expand_charclasses: bool = True,
+    expand_depth: Optional[int] = 1,
 ) -> str:
     """Convert multiple grammar rules to a single DOT string with subgraphs.
 
@@ -608,6 +621,10 @@ def grammar_to_nfa_dot(
         If True, draw dashed edges between rule references.
     expand_rules : set[str] | None
         Rules to expand inline.  Defaults to all *rule_names*.
+    expand_depth : int | None
+        Maximum depth for recursive rule expansion.  Defaults to ``1``
+        (one level) to prevent combinatorial blowup in deeply nested
+        grammars.  Use ``None`` for unlimited expansion.
 
     Returns
     -------
@@ -634,6 +651,7 @@ def grammar_to_nfa_dot(
             allow_unknown_nodes_as_special=allow_unknown_nodes_as_special,
             expand_rules=expand_rules,
             expand_charclasses=expand_charclasses,
+            max_expand_depth=expand_depth,
         )
         rendered[rule_name] = builder.build_rule(rule_name)
         safe_names[rule_name] = _safe_id(rule_name)
@@ -708,6 +726,7 @@ def write_rule_dot(
     allow_unknown_nodes_as_special: bool = True,
     expand_rules: Optional[Set[str]] = None,
     expand_charclasses: bool = True,
+    expand_depth: Optional[int] = None,
 ) -> Path:
     """Write the NFA for a single rule as a ``.dot`` file."""
     dot = grammar_rule_to_nfa_dot(
@@ -717,6 +736,7 @@ def write_rule_dot(
         allow_unknown_nodes_as_special=allow_unknown_nodes_as_special,
         expand_rules=expand_rules,
         expand_charclasses=expand_charclasses,
+        expand_depth=expand_depth,
     )
     output_path = Path(output_path)
     output_path.write_text(dot, encoding="utf-8")
@@ -734,6 +754,7 @@ def write_grammar_dot(
     show_inter_rule_links: bool = False,
     expand_rules: Optional[Set[str]] = None,
     expand_charclasses: bool = True,
+    expand_depth: Optional[int] = 1,
 ) -> Path:
     """Write the NFA for a grammar as a ``.dot`` file."""
     dot = grammar_to_nfa_dot(
@@ -745,6 +766,7 @@ def write_grammar_dot(
         show_inter_rule_links=show_inter_rule_links,
         expand_rules=expand_rules,
         expand_charclasses=expand_charclasses,
+        expand_depth=expand_depth,
     )
     output_path = Path(output_path)
     output_path.write_text(dot, encoding="utf-8")
@@ -793,6 +815,7 @@ def write_grammar_svg(
     keep_dot: bool = True,
     expand_rules: Optional[Set[str]] = None,
     expand_charclasses: bool = True,
+    expand_depth: Optional[int] = 1,
 ) -> Path:
     """Write the NFA for a grammar directly as an SVG file.
 
@@ -807,6 +830,9 @@ def write_grammar_svg(
         Output SVG file path.
     keep_dot : bool
         If True (default), keep the intermediate ``.dot`` file.
+    expand_depth : int | None
+        Maximum depth for recursive rule expansion.  Defaults to ``1``.
+        Use ``None`` for unlimited expansion.
 
     Returns
     -------
@@ -826,6 +852,7 @@ def write_grammar_svg(
         show_inter_rule_links=show_inter_rule_links,
         expand_rules=expand_rules,
         expand_charclasses=expand_charclasses,
+        expand_depth=expand_depth,
     )
     render_dot_to_svg(dot_path, output_svg_path)
 
