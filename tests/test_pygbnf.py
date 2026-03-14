@@ -322,6 +322,73 @@ check("all defaults — has y", '\\"y\\"' in gbnf_all, True)
 
 # ── Summary ──────────────────────────────────────────────────────────
 
+# ── T() f-string template builder ────────────────────────────────────
+
+from pygbnf import T
+from pygbnf.nodes import _tl
+
+print("\nT() template builder:")
+
+# Basic: literal-only template produces Literal lines
+node = T(f"""Hello world
+""")
+out = _emit(node)
+check("literal-only template", '"Hello world" "\\n"' in out, True)
+
+# Placeholder: embed a node in the template
+n = number()
+node = T(f"""Age: {n}
+""")
+out = _emit(node)
+check("placeholder in template", '"Age: "' in out and '"\\n"' in out, True)
+
+# Repeat +: line with :+ is one-or-more
+free = one_or_more(CharacterClass(pattern="^\\n"))
+node = T(f"""Items:
+- {free:+}
+""")
+out = _emit(node)
+check("repeat + generates *", "*" in out, True)
+
+# Repeat *: line with :* is zero-or-more only
+node = T(f"""Header:
+- {free:*}
+""")
+out = _emit(node)
+# Should have zero_or_more but NOT a mandatory first occurrence
+check("repeat * generates *", "*" in out, True)
+
+# Multiple sections
+node = T(f"""# Section A:
+- {free}+
+# Section B:
+- {free}+
+Done:
+""")
+out = _emit(node)
+check("multi-section has Done", '"Done:"' in out, True)
+check("multi-section has Section A", '"# Section A:"' in out, True)
+
+# Full round-trip: embed in a grammar
+g_tpl = cfg.Grammar()
+
+@g_tpl.rule
+def template_test():
+    f = one_or_more(CharacterClass(pattern="^\\n"))
+    return T(f"""Nom: {identifier()}
+Age: {number()}
+""")
+
+g_tpl.start("template_test")
+gbnf = g_tpl.to_gbnf()
+check("grammar round-trip has Nom", '"Nom: "' in gbnf, True)
+check("grammar round-trip has Age", 'Age: ' in gbnf, True)
+
+# Registry is cleaned up after T() call
+check("registry cleaned", getattr(_tl, 'counter', 0), 0)
+
+# ── Summary ──────────────────────────────────────────────────────────
+
 print(f"\n{'=' * 40}")
 print(f"Results: {passed} passed, {failed} failed")
 if failed:

@@ -7,6 +7,7 @@ directly inside ``@g.rule`` definitions or composed with other combinators.
 
 from __future__ import annotations
 
+import re
 from typing import Union
 
 from .nodes import (
@@ -19,8 +20,9 @@ from .nodes import (
     RuleReference,
     Sequence,
     _coerce,
+    _tl,
 )
-from .combinators import one_or_more, zero_or_more, optional, select, group
+from .combinators import one_or_more, zero_or_more, optional, repeat, select, group
 
 
 # ---------------------------------------------------------------------------
@@ -182,3 +184,106 @@ def any_char() -> CharacterClass:
     # GBNF uses [^\n] or similar; we'll provide a helper that covers
     # printable ASCII at minimum.  Users can replace with their own class.
     return CharacterClass(pattern="\\x00-\\x7F")
+
+
+def line(prefix: str = "- ") -> Node:
+    """A bullet-point line: *prefix* followed by free text.
+
+    Does **not** append ``\\n`` — use inside :func:`T` which adds line
+    endings automatically.
+
+    >>> line()        # → "- " [^\\n]+
+    >>> line("* ")    # → "* " [^\\n]+
+    """
+    return Sequence(children=[
+        Literal(prefix),
+        one_or_more(CharacterClass(pattern="^\\n")),
+    ])
+
+# ---------------------------------------------------------------------------
+# f-string template builder
+# ---------------------------------------------------------------------------
+
+_MARKER_RE = re.compile(r"\x00\x01(\d+)\x00")
+
+
+def T(template: str) -> Node:
+    """Build a grammar node from an f-string template.
+
+    Use Python f-strings to embed :class:`~pygbnf.nodes.Node` expressions
+    directly inside a text template.  Each line in the template becomes a
+    sequence terminated by ``\\n``.
+
+    Use format specs for line-level quantifiers:
+
+    - ``{node:+}`` → the line is matched **one or more** times
+    - ``{node:*}`` → the line is matched **zero or more** times
+    - ``{node:?}`` → the line is matched **zero or one** time
+
+    Examples
+    --------
+    ::
+
+        free = one_or_more(CharacterClass(pattern="^\\n"))
+
+        return T(f\"\"\"# Reformulation:
+        - {free:+}
+        # Structure:
+        - {free:+}
+        Traduction:
+        \"\"\")
+    """
+    registry = getattr(_tl, "nodes", {})
+    children = []
+
+    lines = template.strip("\n").split("\n")
+    for line in lines:
+        # Split on markers, interleave Literal and Node
+        parts = _MARKER_RE.split(line)
+        line_children = []
+        line_repeat = None  # quantifier from format spec
+        for i, part in enumerate(parts):
+            if i % 2 == 1:  # captured group = counter id
+                marker = f"\x00\x01{part}\x00"
+                if marker not in registry:
+                    raise ValueError(
+                        f"Unknown node marker (id={part}). "
+                        "Make sure to call T() with an f-string."
+                    )
+                node, spec = registry[marker]
+                line_children.append(node)
+                if spec:
+                    line_repeat = spec
+            elif part:
+                line_children.append(Literal(part))
+
+        line_children.append(Literal("\n"))
+        ln = Sequence(children=line_children) if len(line_children) > 1 else line_children[0]
+
+        if line_repeat == "+":
+            children.append(ln)
+            children.append(zero_or_more(ln))
+        elif line_repeat == "*":
+            children.append(zero_or_more(ln))
+        elif line_repeat == "?":
+            children.append(optional(ln))
+        elif line_repeat is not None:
+            # Numeric: "N", "N,M", or "N,"
+            if "," in line_repeat:
+                parts_q = line_repeat.split(",", 1)
+                rmin = int(parts_q[0])
+                rmax = int(parts_q[1]) if parts_q[1] else None
+            else:
+                rmin = int(line_repeat)
+                rmax = rmin
+            children.append(repeat(ln, min=rmin, max=rmax))
+        else:
+            children.append(ln)
+
+    # Clean up registry
+    _tl.nodes = {}
+    _tl.counter = 0
+
+    if len(children) == 1:
+        return children[0]
+    return Sequence(children=children)

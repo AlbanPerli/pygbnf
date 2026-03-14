@@ -8,8 +8,26 @@ Python DSL for grammar authoring.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from typing import List, Optional, Union
+
+# ---------------------------------------------------------------------------
+# Thread-local registry for f-string template support (used by T())
+# ---------------------------------------------------------------------------
+
+_tl = threading.local()
+
+
+def _node_register(node: "Node", spec: str = "") -> str:
+    """Store *node* in a thread-local registry and return a unique marker."""
+    if not hasattr(_tl, "nodes"):
+        _tl.nodes = {}
+        _tl.counter = 0
+    _tl.counter += 1
+    marker = f"\x00\x01{_tl.counter}\x00"
+    _tl.nodes[marker] = (node, spec)
+    return marker
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +67,29 @@ class Node:
         left = other.alternatives if isinstance(other, Alternative) else [other]
         right = self.alternatives if isinstance(self, Alternative) else [self]
         return Alternative(alternatives=list(left) + list(right))
+
+    def __format__(self, spec: str) -> str:
+        """Allow embedding nodes in f-strings for use with :func:`~pygbnf.helpers.T`.
+
+        Format specs:
+
+        - ``+`` — one or more
+        - ``*`` — zero or more
+        - ``?`` — zero or one
+        - ``3`` — exactly 3
+        - ``2,5`` — between 2 and 5
+        - ``2,`` — 2 or more
+
+        These apply to the **entire line** in a :func:`T` template.
+        """
+        if spec and spec not in ('+', '*', '?'):
+            import re
+            if not re.fullmatch(r'\d+(?:,\d*)?', spec):
+                raise ValueError(
+                    f"Invalid format spec {spec!r} for Node; "
+                    "use '+', '*', '?', 'N', 'N,M', or 'N,'"
+                )
+        return _node_register(self, spec)
 
 
 # ---------------------------------------------------------------------------

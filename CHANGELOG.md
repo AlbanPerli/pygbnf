@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] — 2026-03-14
+
+### Added
+- `T()` f-string template builder — write grammar-constrained text as natural f-strings with `{node}` placeholders
+  - Each line in the template becomes a `Literal`/`Node` sequence terminated by `\n`
+  - Line-level quantifiers via format specs: `{node:+}` (one or more), `{node:*}` (zero or more), `{node:?}` (optional), `{node:3}` (exact), `{node:2,5}` (range), `{node:2,}` (min)
+- `line(prefix)` helper — bullet-point line (`prefix` + free text), designed for use inside `T()`
+- `Node.__format__()` — enables embedding any grammar node inside f-strings via a thread-local marker registry
+- New example: `demo_template.py`
+
 ## [0.4.0] — 2026-03-13
 
 ### Added
