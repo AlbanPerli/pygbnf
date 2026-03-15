@@ -19,6 +19,29 @@ from typing import List, Optional, Union
 _tl = threading.local()
 
 
+def _node_label(node: "Node") -> str:
+    """Short human-readable label for a node (used in template reconstruction)."""
+    # Check for explicit label set by helpers
+    label = getattr(node, "_label", None)
+    if label:
+        return label
+    if isinstance(node, Literal):
+        return repr(node.value)
+    if isinstance(node, CharacterClass):
+        return f"[{node.pattern}]"
+    if isinstance(node, RuleReference):
+        return node.name
+    if isinstance(node, Alternative):
+        parts = []
+        for a in node.alternatives:
+            if isinstance(a, Literal):
+                parts.append(repr(a.value))
+            else:
+                parts.append("...")
+        return " | ".join(parts)
+    return type(node).__name__
+
+
 def _node_register(node: "Node", spec: str = "") -> str:
     """Store *node* in a thread-local registry and return a unique marker."""
     if not hasattr(_tl, "nodes"):
@@ -26,7 +49,7 @@ def _node_register(node: "Node", spec: str = "") -> str:
         _tl.counter = 0
     _tl.counter += 1
     marker = f"\x00\x01{_tl.counter}\x00"
-    _tl.nodes[marker] = (node, spec)
+    _tl.nodes[marker] = (node, spec, _node_label(node))
     return marker
 
 

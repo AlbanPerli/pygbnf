@@ -55,6 +55,12 @@ def ws_required() -> Node:
 # Common token patterns
 # ---------------------------------------------------------------------------
 
+def _labeled(node: Node, label: str) -> Node:
+    """Attach a human-readable *label* to *node* for template display."""
+    object.__setattr__(node, "_label", label)
+    return node
+
+
 def keyword(word: str) -> Literal:
     """A literal keyword.
 
@@ -64,27 +70,17 @@ def keyword(word: str) -> Literal:
 
 
 def identifier() -> Node:
-    """A typical identifier: ``[a-zA-Z_][a-zA-Z0-9_]*``.
-
-    Compiles to::
-
-        [a-zA-Z_] [a-zA-Z0-9_]*
-    """
+    """A typical identifier: ``[a-zA-Z_][a-zA-Z0-9_]*``."""
     head = CharacterClass(pattern="a-zA-Z_")
     tail = zero_or_more(CharacterClass(pattern="a-zA-Z0-9_"))
-    return Sequence(children=[head, tail])
+    return _labeled(Sequence(children=[head, tail]), "identifier")
 
 
 def number() -> Node:
-    """An optionally-negative integer: ``"-"? [0-9]+``.
-
-    Compiles to::
-
-        "-"? [0-9]+
-    """
+    """An optionally-negative integer: ``"-"? [0-9]+``."""
     sign = optional(Literal("-"))
     digits = one_or_more(CharacterClass(pattern="0-9"))
-    return Sequence(children=[sign, digits])
+    return _labeled(Sequence(children=[sign, digits]), "number")
 
 
 def float_number() -> Node:
@@ -97,8 +93,7 @@ def float_number() -> Node:
             one_or_more(CharacterClass(pattern="0-9")),
         ]))
     )
-    return Sequence(children=[sign, integer_part, frac])
-
+    return _labeled(Sequence(children=[sign, integer_part, frac]), "float")
 
 def string_literal(*, quote: str = '"') -> Node:
     """A double-quoted (or custom-quoted) string with escape support.
@@ -114,11 +109,11 @@ def string_literal(*, quote: str = '"') -> Node:
             CharacterClass(pattern=f'{quote}\\\\/bfnrtu'),  # known escape targets
         ]),
     ])
-    return Sequence(children=[
+    return _labeled(Sequence(children=[
         Literal(quote),
         zero_or_more(Group(child=body_char)),
         Literal(quote),
-    ])
+    ]), "string")
 
 
 # ---------------------------------------------------------------------------
@@ -195,10 +190,11 @@ def line(prefix: str = "- ") -> Node:
     >>> line()        # → "- " [^\\n]+
     >>> line("* ")    # → "* " [^\\n]+
     """
-    return Sequence(children=[
+    lbl = f"line({prefix!r})" if prefix != "- " else "line"
+    return _labeled(Sequence(children=[
         Literal(prefix),
         one_or_more(CharacterClass(pattern="^\\n")),
-    ])
+    ]), lbl)
 
 # ---------------------------------------------------------------------------
 # f-string template builder
@@ -236,8 +232,26 @@ def T(template: str) -> Node:
     registry = getattr(_tl, "nodes", {})
     children = []
 
-    lines = template.strip("\n").split("\n")
-    for line in lines:
+    # Reconstruct human-readable template
+    raw_lines = template.strip("\n").split("\n")
+    readable_lines = []
+
+    for line in raw_lines:
+        # Build readable version of this line
+        rparts = _MARKER_RE.split(line)
+        readable = ""
+        for ri, rp in enumerate(rparts):
+            if ri % 2 == 1:
+                marker = f"\x00\x01{rp}\x00"
+                if marker in registry:
+                    _, spec, label = registry[marker]
+                    readable += "{" + label + (":" + spec if spec else "") + "}"
+                else:
+                    readable += "{?}"
+            else:
+                readable += rp
+        readable_lines.append(readable)
+
         # Split on markers, interleave Literal and Node
         parts = _MARKER_RE.split(line)
         line_children = []
@@ -250,7 +264,7 @@ def T(template: str) -> Node:
                         f"Unknown node marker (id={part}). "
                         "Make sure to call T() with an f-string."
                     )
-                node, spec = registry[marker]
+                node, spec, _label = registry[marker]
                 line_children.append(node)
                 if spec:
                     line_repeat = spec
@@ -284,6 +298,12 @@ def T(template: str) -> Node:
     _tl.nodes = {}
     _tl.counter = 0
 
+    readable = "\n".join(readable_lines)
+
     if len(children) == 1:
-        return children[0]
-    return Sequence(children=children)
+        result = children[0]
+    else:
+        result = Sequence(children=children)
+
+    object.__setattr__(result, "_template", readable)
+    return result

@@ -15,9 +15,9 @@ def code_review():
 Confidence: {number()}/10
 Summary: {line("")}
 Affected files:
-{line("-"):0,5}
+{line("-"):+}
 Suggested fix:
-{line("-"):3}
+{line("-"):+}
 """)
 
 

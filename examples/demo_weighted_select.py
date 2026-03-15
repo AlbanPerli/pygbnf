@@ -23,20 +23,19 @@ from pygbnf import Grammar, GrammarLLM, select, weighted_select
 BASE_URL = "http://localhost:8080/v1"
 N = 20  # samples per condition
 
-DISHES = ["pizza", "burger", "risotto", "salad", "pasta"]
+DISHES = ["pizza", "burger", "salad", "Meat"]
 
 # Today's special is risotto (×25), burger is out of stock (×0.02).
 WEIGHTS = {
     "pizza":   1.0,
     "burger":  0.2,   # almost out of stock
-    "risotto": 5.0,   # chef's special today
-    "salad":   1.0,
-    "pasta":   1.0,
+    "salad":   5.0,
+    "Meat":   1.0,
 }
 
 MESSAGES = [
-    {"role": "system", "content": "You are a restaurant waiter. Suggest ONE dish."},
-    {"role": "user", "content": "What should I order today?"},
+    {"role": "system", "content": "You are a restaurant waiter in a (salad) vegan restaurant. Suggest ONE dish."},
+    {"role": "user", "content": "I love vegetables, what should I order today?"},
 ]
 
 
@@ -61,7 +60,7 @@ def make_grammar(weighted: bool) -> Grammar:
 llm = GrammarLLM(BASE_URL)
 
 
-text, _ = llm.complete(messages=MESSAGES, grammar= make_grammar(weighted=False), temperature=0.0)
+text, _ = llm.complete(messages=MESSAGES, grammar= make_grammar(weighted=False), temperature=0.5)
 print(text)
-text, _ = llm.complete(messages=MESSAGES, grammar= make_grammar(weighted=True), temperature=0.0)
+text, _ = llm.complete(messages=MESSAGES, grammar= make_grammar(weighted=True), temperature=0.5)
 print(text)
