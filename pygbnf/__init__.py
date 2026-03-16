@@ -187,4 +187,4 @@ __all__ = [
     "write_rule_dot",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
