@@ -11,7 +11,7 @@ g = cfg.Grammar()
 @g.rule
 def code_review():
     return  T(f"""Severity: {select(["critical", "major", "minor", "info"])}
-Confidence: {int_range(0,15)}/10
+Confidence: {int_range(0,10)}/10
 Summary:
 From architect point of view: 
 {line()}
