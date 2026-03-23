@@ -24,9 +24,11 @@ from pygbnf import (
     any_char,
     between,
     comma_list,
+    decimal_range,
     float_number,
     group,
     identifier,
+    int_range,
     keyword,
     not_token,
     not_token_id,
@@ -294,6 +296,58 @@ def test_helper_aliases_and_additional_helpers_match_expected_output():
     assert "item" in spaced
     assert "," in spaced
     assert isinstance(any_char(), CharacterClass)
+
+
+def test_int_range_emits_inclusive_integer_alternatives():
+    rendered = _emit(int_range(1, 3))
+    assert rendered == "[1-3]"
+
+
+def test_int_range_supports_negative_values_and_singletons():
+    rendered = _emit(int_range(-2, 1))
+    assert '"-"' in rendered
+    assert "[1-2]" in rendered
+    assert '"0"' in rendered
+    assert '"1"' in rendered
+    assert _emit(int_range(7, 7)) == '"7"'
+    assert _emit(int_range(100, 999)) == "[1-9] [0-9]{2}"
+
+
+def test_int_range_validates_bounds_and_types():
+    with pytest.raises(ValueError):
+        int_range(3, 1)
+    with pytest.raises(TypeError):
+        int_range(True, 2)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        int_range(1.5, 2)  # type: ignore[arg-type]
+
+
+def test_decimal_range_supports_explicit_scale():
+    rendered = _emit(decimal_range(1.2, 1.5, scale=1))
+    assert rendered == '"1.2" | "1.3" | "1.4" | "1.5"'
+
+
+def test_decimal_range_supports_decimal_strings_and_custom_steps():
+    rendered = _emit(decimal_range("0.00", "1.00", step="0.25"))
+    assert rendered == '"0.00" | "0.25" | "0.50" | "0.75" | "1.00"'
+    assert _emit(decimal_range(2, 4, scale=0)) == '"2" | "3" | "4"'
+
+
+def test_decimal_range_validates_configuration_and_alignment():
+    with pytest.raises(ValueError):
+        decimal_range(2.0, 1.0, scale=1)
+    with pytest.raises(ValueError):
+        decimal_range(0.0, 1.0)
+    with pytest.raises(ValueError):
+        decimal_range(0.0, 1.0, step=0.1, scale=1)
+    with pytest.raises(ValueError):
+        decimal_range(0.0, 1.0, step=0.3)
+    with pytest.raises(ValueError):
+        decimal_range(0.0, 2000.0, scale=0)
+    with pytest.raises(ValueError):
+        decimal_range(0.0, 1.0, step=0)
+    with pytest.raises(ValueError):
+        decimal_range(float("inf"), 1.0, scale=1)
 
 
 def test_empty_grammar_compiles_to_empty_string():

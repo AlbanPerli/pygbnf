@@ -4,16 +4,14 @@
 import sys
 
 import pygbnf as cfg
-from pygbnf import T, GrammarLLM, one_or_more, select, number, line, Sequence
-from pygbnf.combinators import zero_or_more
-from pygbnf.tokens import not_token, token
+from pygbnf import T, GrammarLLM, int_range, line, select
 
 g = cfg.Grammar()
 
 @g.rule
 def code_review():
     return  T(f"""Severity: {select(["critical", "major", "minor", "info"])}
-Confidence: {number()}/10
+Confidence: {int_range(0,15)}/10
 Summary:
 From architect point of view: 
 {line()}

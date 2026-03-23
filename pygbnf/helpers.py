@@ -7,6 +7,7 @@ directly inside ``@g.rule`` definitions or composed with other combinators.
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 import re
 from typing import Union
 
@@ -23,6 +24,9 @@ from .nodes import (
     _tl,
 )
 from .combinators import one_or_more, zero_or_more, optional, repeat, select, group
+
+
+_MAX_ENUMERATED_RANGE = 1000
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +98,203 @@ def float_number() -> Node:
         ]))
     )
     return _labeled(Sequence(children=[sign, integer_part, frac]), "float")
+
+
+def _digit_node(min_digit: int, max_digit: int) -> Node:
+    if min_digit == max_digit:
+        return Literal(str(min_digit))
+    return CharacterClass(pattern=f"{min_digit}-{max_digit}")
+
+
+def _any_digits(count: int) -> Node:
+    if count <= 0:
+        return Literal("")
+    if count == 1:
+        return CharacterClass(pattern="0-9")
+    return Repeat(child=CharacterClass(pattern="0-9"), min=count, max=count)
+
+
+def _concat_nodes(left: Node, right: Node) -> Node:
+    if isinstance(left, Literal) and left.value == "":
+        return right
+    if isinstance(right, Literal) and right.value == "":
+        return left
+    return left + right
+
+
+def _range_same_length(lo: str, hi: str) -> Node:
+    if len(lo) != len(hi):
+        raise ValueError("_range_same_length() requires equal-length bounds")
+    if lo == hi:
+        return Literal(lo)
+    if len(lo) == 1:
+        return _digit_node(int(lo), int(hi))
+    if lo == "0" * len(lo) and hi == "9" * len(hi):
+        return _any_digits(len(lo))
+
+    if lo[0] == hi[0]:
+        return _concat_nodes(Literal(lo[0]), _range_same_length(lo[1:], hi[1:]))
+
+    first_digit = int(lo[0])
+    last_digit = int(hi[0])
+    rest_len = len(lo) - 1
+    alts = [
+        _concat_nodes(Literal(lo[0]), _range_same_length(lo[1:], "9" * rest_len))
+    ]
+    if first_digit + 1 <= last_digit - 1:
+        alts.append(
+            _concat_nodes(_digit_node(first_digit + 1, last_digit - 1), _any_digits(rest_len))
+        )
+    alts.append(
+        _concat_nodes(Literal(hi[0]), _range_same_length("0" * rest_len, hi[1:]))
+    )
+    return select(alts)
+
+
+def _full_positive_length(length: int) -> Node:
+    if length == 1:
+        return CharacterClass(pattern="1-9")
+    return CharacterClass(pattern="1-9") + _any_digits(length - 1)
+
+
+def _positive_int_range(min_value: int, max_value: int) -> Node:
+    if min_value == max_value:
+        return Literal(str(min_value))
+    if min_value < 1 or max_value < min_value:
+        raise ValueError("_positive_int_range() requires 1 <= min_value <= max_value")
+
+    lo = str(min_value)
+    hi = str(max_value)
+    if lo == "1" + "0" * (len(lo) - 1) and hi == "9" * len(hi):
+        return _full_positive_length(len(lo))
+    if len(lo) == len(hi):
+        return _range_same_length(lo, hi)
+
+    alts = [_range_same_length(lo, "9" * len(lo))]
+    for length in range(len(lo) + 1, len(hi)):
+        alts.append(_full_positive_length(length))
+    alts.append(_range_same_length("1" + "0" * (len(hi) - 1), hi))
+    return select(alts)
+
+
+def int_range(min_value: int, max_value: int) -> Node:
+    """An inclusive integer range encoded as a compact digit grammar.
+
+    Examples
+    --------
+    >>> int_range(1, 3)
+    >>> int_range(-20, 20)
+    >>> int_range(100, 999)
+    """
+    if isinstance(min_value, bool) or isinstance(max_value, bool):
+        raise TypeError("int_range() does not accept bool values")
+    if not isinstance(min_value, int) or not isinstance(max_value, int):
+        raise TypeError("int_range() expects integer bounds")
+    if min_value > max_value:
+        raise ValueError("int_range() requires min_value <= max_value")
+
+    if min_value == max_value:
+        return _labeled(Literal(str(min_value)), f"int_range({min_value}, {max_value})")
+
+    if min_value >= 0:
+        node = Literal("0") if max_value == 0 else (
+            _digit_node(min_value, max_value) if 0 <= min_value <= max_value <= 9
+            else (
+                select([Literal("0"), _positive_int_range(1, max_value)])
+                if min_value == 0
+                else _positive_int_range(min_value, max_value)
+            )
+        )
+        return _labeled(node, f"int_range({min_value}, {max_value})")
+
+    if max_value < 0:
+        node = Literal("-") + _positive_int_range(abs(max_value), abs(min_value))
+        return _labeled(node, f"int_range({min_value}, {max_value})")
+
+    parts = [Literal("-") + _positive_int_range(1, abs(min_value)), Literal("0")]
+    if max_value >= 1:
+        parts.append(_positive_int_range(1, max_value))
+    return _labeled(select(parts), f"int_range({min_value}, {max_value})")
+
+
+def decimal_range(
+    min_value: Union[int, float, str],
+    max_value: Union[int, float, str],
+    *,
+    step: Union[int, float, str, None] = None,
+    scale: int | None = None,
+) -> Node:
+    """An inclusive decimal range over a discrete step.
+
+    Exactly one of `step` or `scale` must be provided.
+
+    Examples
+    --------
+    >>> decimal_range(1.2, 1.5, scale=1)
+    >>> decimal_range("0.00", "1.00", step="0.25")
+    """
+
+    def _to_decimal(value: Union[int, float, str]) -> Decimal:
+        try:
+            dec = Decimal(str(value))
+        except (InvalidOperation, ValueError) as exc:
+            raise TypeError(
+                "decimal_range() expects numeric or decimal-string bounds"
+            ) from exc
+        if not dec.is_finite():
+            raise ValueError("decimal_range() requires finite bounds")
+        return dec
+
+    if (step is None) == (scale is None):
+        raise ValueError("decimal_range() requires exactly one of: step or scale")
+    if scale is not None and scale < 0:
+        raise ValueError("decimal_range() requires scale >= 0")
+
+    lo = _to_decimal(min_value)
+    hi = _to_decimal(max_value)
+    if lo > hi:
+        raise ValueError("decimal_range() requires min_value <= max_value")
+
+    if scale is not None:
+        step_dec = Decimal(1).scaleb(-scale)
+        display_scale = scale
+    else:
+        step_dec = _to_decimal(step)  # type: ignore[arg-type]
+        if step_dec <= 0:
+            raise ValueError("decimal_range() requires step > 0")
+        display_scale = max(
+            0,
+            -lo.as_tuple().exponent,
+            -hi.as_tuple().exponent,
+            -step_dec.as_tuple().exponent,
+        )
+
+    quotient = (hi - lo) / step_dec
+    if quotient != quotient.to_integral_value():
+        raise ValueError("decimal_range() requires bounds aligned with the chosen step")
+
+    count = int(quotient) + 1
+    if count > _MAX_ENUMERATED_RANGE:
+        raise ValueError(
+            f"decimal_range() would generate {count} alternatives; "
+            f"maximum supported is {_MAX_ENUMERATED_RANGE}"
+        )
+
+    quant = Decimal(1).scaleb(-display_scale)
+    values = []
+    current = lo
+    for _ in range(count):
+        if display_scale == 0:
+            text = str(current.quantize(quant))
+        else:
+            text = format(current.quantize(quant), f".{display_scale}f")
+        values.append(text)
+        current += step_dec
+
+    return _labeled(
+        select(values),
+        f"decimal_range({min_value}, {max_value})",
+    )
 
 def string_literal(*, quote: str = '"') -> Node:
     """A double-quoted (or custom-quoted) string with escape support.
