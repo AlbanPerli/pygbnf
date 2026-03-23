@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Test suite for pygbnf — validates AST construction, codegen, and optimizations."""
+"""Pytest suite for core pygbnf behavior."""
 
-import sys
+from dataclasses import dataclass, field as dc_field
+from typing import List, Optional
 import warnings
+
+import pytest
 
 import pygbnf as cfg
 from pygbnf import (
@@ -11,11 +14,9 @@ from pygbnf import (
     Grammar,
     Group,
     Literal,
-    Node,
     Repeat,
     RuleReference,
     Sequence,
-    TokenReference,
     group,
     one_or_more,
     optional,
@@ -27,258 +28,26 @@ from pygbnf import (
     not_token,
     not_token_id,
     WS,
-    identifier,
-    number,
-    keyword,
-    comma_list,
+    T,
     between,
-    string_literal,
+    comma_list,
     float_number,
+    identifier,
+    keyword,
+    number,
+    string_literal,
 )
 from pygbnf.gbnf_codegen import _emit
+from pygbnf.nodes import _tl
 from pygbnf.optimizations import optimize_rules
+from pygbnf.schema import grammar_from_type
 
-passed = 0
-failed = 0
-
-
-def check(label: str, got, expected):
-    global passed, failed
-    if got == expected:
-        passed += 1
-        print(f"  ✓ {label}")
-    else:
-        failed += 1
-        print(f"  ✗ {label}")
-        print(f"    expected: {expected!r}")
-        print(f"    got:      {got!r}")
-
-
-# ── Node construction ──────────────────────────────────────────────────
-
-print("Node construction:")
-
-check("Literal", Literal("hello").value, "hello")
-check("CharacterClass", CharacterClass(pattern="0-9").pattern, "0-9")
-check("Sequence via +", isinstance(Literal("a") + Literal("b"), Sequence), True)
-check("Alternative via |", isinstance(Literal("a") | Literal("b"), Alternative), True)
-check("str + Node", isinstance("x" + Literal("y"), Sequence), True)
-check("Node + str", isinstance(Literal("x") + "y", Sequence), True)
-check("str | Node", isinstance("x" | Literal("y"), Alternative), True)
-
-seq = Literal("a") + Literal("b") + Literal("c")
-check("Sequence flattening via +", len(seq.children), 3)
-
-alt = Literal("a") | Literal("b") | Literal("c")
-check("Alternative flattening via |", len(alt.alternatives), 3)
-
-# ── Combinators ────────────────────────────────────────────────────────
-
-print("\nCombinators:")
-
-check("select(str) → CharacterClass", isinstance(select("abc"), CharacterClass), True)
-check("select(list) → Alternative", isinstance(select(["a", "b"]), Alternative), True)
-check("select([single]) → Literal", isinstance(select(["a"]), Literal), True)
-check("one_or_more min", one_or_more("x").min, 1)
-check("one_or_more max", one_or_more("x").max, None)
-check("zero_or_more min", zero_or_more("x").min, 0)
-check("optional max", optional("x").max, 1)
-check("repeat(x,2,5)", (repeat("x", 2, 5).min, repeat("x", 2, 5).max), (2, 5))
-check("group", isinstance(group("x"), Group), True)
-
-# ── Token references ──────────────────────────────────────────────────
-
-print("\nToken references:")
-
-check("token", _emit(token("think")), "<think>")
-check("token_id", _emit(token_id(1000)), "<[1000]>")
-check("not_token", _emit(not_token("think")), "!<think>")
-check("not_token_id", _emit(not_token_id(1001)), "!<[1001]>")
-
-# ── Code generation ───────────────────────────────────────────────────
-
-print("\nCode generation:")
-
-check("Literal emit", _emit(Literal("hello")), '"hello"')
-check("Literal escape quotes", _emit(Literal('say "hi"')), '"say \\"hi\\""')
-check("Literal escape newline", _emit(Literal("a\nb")), '"a\\nb"')
-check("CharacterClass", _emit(CharacterClass(pattern="0-9")), "[0-9]")
-check("CharacterClass negated", _emit(CharacterClass(pattern="abc", negated=True)), "[^abc]")
-check("CharacterClass ^ in pattern", _emit(CharacterClass(pattern="^abc")), "[^abc]")
-check("RuleReference", _emit(RuleReference(name="my-rule")), "my-rule")
-
-seq_emit = _emit(Sequence(children=[Literal("a"), Literal("b")]))
-check("Sequence emit", seq_emit, '"a" "b"')
-
-alt_emit = _emit(Alternative(alternatives=[Literal("a"), Literal("b")]))
-check("Alternative emit", alt_emit, '"a" | "b"')
-
-rep_emit = _emit(Repeat(child=CharacterClass(pattern="0-9"), min=1, max=None))
-check("Repeat + emit", rep_emit, "[0-9]+")
-
-rep_star = _emit(Repeat(child=Literal("x"), min=0, max=None))
-check("Repeat * emit", rep_star, '"x"*')
-
-rep_opt = _emit(Repeat(child=Literal("x"), min=0, max=1))
-check("Repeat ? emit", rep_opt, '"x"?')
-
-rep_range = _emit(Repeat(child=Literal("x"), min=2, max=5))
-check("Repeat {m,n} emit", rep_range, '"x"{2,5}')
-
-rep_exact = _emit(Repeat(child=Literal("x"), min=3, max=3))
-check("Repeat {n} emit", rep_exact, '"x"{3}')
-
-rep_min = _emit(Repeat(child=Literal("x"), min=2, max=None))
-check("Repeat {m,} emit", rep_min, '"x"{2,}')
-
-grp = _emit(Group(child=Alternative(alternatives=[Literal("a"), Literal("b")])))
-check("Group emit", grp, '("a" | "b")')
-
-# Wrap alternatives in sequence context
-alt_in_seq = _emit(
-    Sequence(children=[
-        Literal("x"),
-        Alternative(alternatives=[Literal("a"), Literal("b")]),
-    ])
-)
-check("Alt wrapped in seq", alt_in_seq, '"x" ("a" | "b")')
-
-# ── Grammar container ────────────────────────────────────────────────
-
-print("\nGrammar container:")
-
-g = Grammar()
-
-
-@g.rule
-def digit():
-    return select("0123456789")
-
-
-@g.rule
-def num():
-    return optional("-") + one_or_more(digit())
-
-
-g.start("num")
-gbnf = g.to_gbnf()
-check("Grammar basic output", "root ::= num" in gbnf, True)
-check("Rule present: digit", "digit ::=" in gbnf, True)
-check("Rule present: num", "num ::=" in gbnf, True)
-check("Forward ref works", "digit+" in gbnf, True)
-
-# ── Dependency graph ────────────────────────────────────────────────
-
-print("\nDependency graph:")
-
-deps = g.dependency_graph()
-check("num depends on digit", "digit" in deps.get("num", set()), True)
-check("digit has no deps", len(deps.get("digit", set())), 0)
-
-# ── Left recursion detection ────────────────────────────────────────
-
-print("\nLeft recursion detection:")
-
-g2 = Grammar()
-
-
-@g2.rule
-def expr():
-    return select([
-        expr() + "+" + expr(),
-        "x",
-    ])
-
-
-g2.start("expr")
-
-with warnings.catch_warnings(record=True) as w:
-    warnings.simplefilter("always")
-    cycles = g2.detect_left_recursion()
-    check("Detects left recursion", len(cycles) > 0, True)
-    check("Warning emitted", len(w) > 0, True)
-
-# ── Optimizations ────────────────────────────────────────────────────
-
-print("\nOptimizations:")
-
-# Literal collapsing
-opt = optimize_rules({"r": Sequence(children=[Literal("a"), Literal("b"), Literal("c")])})
-check("Literal collapse", opt["r"], Literal("abc"))
-
-# Repetition merging: x? x? x? → x{0,3}
-from pygbnf.nodes import Optional_
-
-three_opt = Sequence(children=[
-    Repeat(child=Literal("x"), min=0, max=1),
-    Repeat(child=Literal("x"), min=0, max=1),
-    Repeat(child=Literal("x"), min=0, max=1),
-    Repeat(child=Literal("x"), min=0, max=1),
-])
-opt2 = optimize_rules({"r": three_opt})
-node = opt2["r"]
-check("Repetition merge x?x?x?x? → x{0,4}", isinstance(node, Repeat) and node.min == 0 and node.max == 4, True)
-
-# Singleton collapse
-opt3 = optimize_rules({"r": Alternative(alternatives=[Literal("x")])})
-check("Singleton alt collapse", opt3["r"], Literal("x"))
-
-opt4 = optimize_rules({"r": Sequence(children=[Literal("x")])})
-check("Singleton seq collapse", opt4["r"], Literal("x"))
-
-# Redundant group removal
-opt5 = optimize_rules({"r": Group(child=Literal("x"))})
-check("Redundant group removal", opt5["r"], Literal("x"))
-
-# ── Helpers ──────────────────────────────────────────────────────────
-
-print("\nHelpers:")
-
-check("WS emit", _emit(WS()), '[ \\t\\n]*')
-check("WS required", _emit(WS(required=True)), '[ \\t\\n]+')
-check("keyword", _emit(keyword("return")), '"return"')
-check("identifier emit", "a-zA-Z_" in _emit(identifier()), True)
-check("number emit", "0-9" in _emit(number()), True)
-check("float_number emit", '"."' in _emit(float_number()), True)
-check("string_literal emit", '[^"\\\\]' in _emit(string_literal()), True)
-
-cl = comma_list(RuleReference(name="item"))
-cl_str = _emit(cl)
-check("comma_list", "," in cl_str, True)
-
-bt = between("(", RuleReference(name="expr"), ")")
-bt_str = _emit(bt)
-check("between", bt_str, '"(" expr ")"')
-
-# ── Rule name conversion ─────────────────────────────────────────────
-
-print("\nRule name conversion:")
-
-g3 = Grammar()
-
-
-@g3.rule
-def my_rule():
-    return Literal("x")
-
-
-g3.start("my_rule")
-gbnf3 = g3.to_gbnf()
-check("snake_case → dashed", "my-rule ::=" in gbnf3, True)
-check("start dashed", "root ::= my-rule" in gbnf3, True)
-
-# ── Schema — optional dataclass fields ───────────────────────────────
-
-print("\nSchema (optional fields):")
-
-from dataclasses import dataclass, field as dc_field
-from typing import Optional, List
-from pygbnf.schema import grammar_from_type, SchemaCompiler
 
 @dataclass
 class _AllRequired:
     name: str
     age: int
+
 
 @dataclass
 class _WithDefaults:
@@ -287,111 +56,296 @@ class _WithDefaults:
     active: bool = True
     nickname: Optional[str] = None
 
+
 @dataclass
 class _AllDefaults:
     x: int = 0
     y: int = 0
 
-# All-required: no optional groups in the dataclass rule itself
-g_req = grammar_from_type(_AllRequired)
-gbnf_req = g_req.to_gbnf()
-# Find the dataclass rule line and check it has no )?
-dc_line_req = [l for l in gbnf_req.splitlines() if "AllRequired" in l and "::=" in l][0]
-check("all required — no ()?", ")?" not in dc_line_req, True)
-check("all required — has name", '\\"name\\"' in gbnf_req, True)
-check("all required — has age", '\\"age\\"' in gbnf_req, True)
 
-# With defaults: optional trailing fields
-g_def = grammar_from_type(_WithDefaults)
-gbnf_def = g_def.to_gbnf()
-check("with defaults — has ()?", ")?" in gbnf_def, True)
-check("with defaults — name required", '\\"name\\"' in gbnf_def, True)
-check("with defaults — active optional", '\\"active\\"' in gbnf_def, True)
-check("with defaults — nickname optional", '\\"nickname\\"' in gbnf_def, True)
-# nickname is nested inside active's optional
-check("with defaults — nested optionals", gbnf_def.count(")?") >= 2, True)
+@pytest.fixture
+def basic_number_grammar() -> Grammar:
+    g = Grammar()
 
-# All defaults: entire body is optional
-g_all = grammar_from_type(_AllDefaults)
-gbnf_all = g_all.to_gbnf()
-check("all defaults — has ()?", ")?" in gbnf_all, True)
-# With no required fields, the JSON can be just {}
-# Check the structure contains the field names
-check("all defaults — has x", '\\"x\\"' in gbnf_all, True)
-check("all defaults — has y", '\\"y\\"' in gbnf_all, True)
+    @g.rule
+    def digit():
+        return select("0123456789")
 
-# ── Summary ──────────────────────────────────────────────────────────
+    @g.rule
+    def num():
+        return optional("-") + one_or_more(digit())
 
-# ── T() f-string template builder ────────────────────────────────────
+    g.start("num")
+    return g
 
-from pygbnf import T
-from pygbnf.nodes import _tl
 
-print("\nT() template builder:")
+@pytest.mark.parametrize(
+    ("expr", "expected_type"),
+    [
+        (Literal("a") + Literal("b"), Sequence),
+        ("x" + Literal("y"), Sequence),
+        (Literal("x") + "y", Sequence),
+        (Literal("a") | Literal("b"), Alternative),
+        ("x" | Literal("y"), Alternative),
+        (Literal("x") | "y", Alternative),
+    ],
+)
+def test_node_operators_return_expected_types(expr, expected_type):
+    assert isinstance(expr, expected_type)
 
-# Basic: literal-only template produces Literal lines
-node = T(f"""Hello world
-""")
-out = _emit(node)
-check("literal-only template", '"Hello world" "\\n"' in out, True)
 
-# Placeholder: embed a node in the template
-n = number()
-node = T(f"""Age: {n}
-""")
-out = _emit(node)
-check("placeholder in template", '"Age: "' in out and '"\\n"' in out, True)
+def test_literal_and_character_class_store_values():
+    assert Literal("hello").value == "hello"
+    assert CharacterClass(pattern="0-9").pattern == "0-9"
 
-# Repeat +: line with :+ is one-or-more
-free = one_or_more(CharacterClass(pattern="^\\n"))
-node = T(f"""Items:
-- {free:+}
-""")
-out = _emit(node)
-check("repeat + generates *", "*" in out, True)
 
-# Repeat *: line with :* is zero-or-more only
-node = T(f"""Header:
-- {free:*}
-""")
-out = _emit(node)
-# Should have zero_or_more but NOT a mandatory first occurrence
-check("repeat * generates *", "*" in out, True)
+def test_sequence_and_alternative_flatten_when_chained():
+    seq = Literal("a") + Literal("b") + Literal("c")
+    alt = Literal("a") | Literal("b") | Literal("c")
 
-# Multiple sections
-node = T(f"""# Section A:
+    assert len(seq.children) == 3
+    assert len(alt.alternatives) == 3
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (select("abc"), CharacterClass),
+        (select(["a", "b"]), Alternative),
+        (select(["a"]), Literal),
+        (group("x"), Group),
+    ],
+)
+def test_combinators_return_expected_node_types(value, expected):
+    assert isinstance(value, expected)
+
+
+def test_repeat_combinators_store_bounds():
+    assert (one_or_more("x").min, one_or_more("x").max) == (1, None)
+    assert (zero_or_more("x").min, zero_or_more("x").max) == (0, None)
+    assert (optional("x").min, optional("x").max) == (0, 1)
+    assert (repeat("x", 2, 5).min, repeat("x", 2, 5).max) == (2, 5)
+
+
+@pytest.mark.parametrize(
+    ("node", "expected"),
+    [
+        (token("think"), "<think>"),
+        (token_id(1000), "<[1000]>"),
+        (not_token("think"), "!<think>"),
+        (not_token_id(1001), "!<[1001]>"),
+        (Literal("hello"), '"hello"'),
+        (Literal('say "hi"'), '"say \\"hi\\""'),
+        (Literal("a\nb"), '"a\\nb"'),
+        (CharacterClass(pattern="0-9"), "[0-9]"),
+        (CharacterClass(pattern="abc", negated=True), "[^abc]"),
+        (CharacterClass(pattern="^abc"), "[^abc]"),
+        (RuleReference(name="my-rule"), "my-rule"),
+        (Sequence(children=[Literal("a"), Literal("b")]), '"a" "b"'),
+        (Alternative(alternatives=[Literal("a"), Literal("b")]), '"a" | "b"'),
+        (Repeat(child=CharacterClass(pattern="0-9"), min=1, max=None), "[0-9]+"),
+        (Repeat(child=Literal("x"), min=0, max=None), '"x"*'),
+        (Repeat(child=Literal("x"), min=0, max=1), '"x"?'),
+        (Repeat(child=Literal("x"), min=2, max=5), '"x"{2,5}'),
+        (Repeat(child=Literal("x"), min=3, max=3), '"x"{3}'),
+        (Repeat(child=Literal("x"), min=2, max=None), '"x"{2,}'),
+        (Group(child=Alternative(alternatives=[Literal("a"), Literal("b")])), '("a" | "b")'),
+    ],
+)
+def test_emit_renders_expected_gbnf(node, expected):
+    assert _emit(node) == expected
+
+
+def test_alternative_is_wrapped_in_sequence_context():
+    rendered = _emit(
+        Sequence(
+            children=[
+                Literal("x"),
+                Alternative(alternatives=[Literal("a"), Literal("b")]),
+            ]
+        )
+    )
+    assert rendered == '"x" ("a" | "b")'
+
+
+def test_basic_grammar_compiles_and_contains_expected_rules(basic_number_grammar: Grammar):
+    gbnf = basic_number_grammar.to_gbnf()
+
+    assert "root ::= num" in gbnf
+    assert "digit ::=" in gbnf
+    assert "num ::=" in gbnf
+    assert "digit+" in gbnf
+
+
+def test_dependency_graph_reports_rule_references(basic_number_grammar: Grammar):
+    deps = basic_number_grammar.dependency_graph()
+
+    assert "digit" in deps.get("num", set())
+    assert deps.get("digit", set()) == set()
+
+
+def test_left_recursion_detection_emits_warning():
+    g = Grammar()
+
+    @g.rule
+    def expr():
+        return select([expr() + "+" + expr(), "x"])
+
+    g.start("expr")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        cycles = g.detect_left_recursion()
+
+    assert cycles
+    assert caught
+
+
+def test_optimizations_collapse_literals_and_singletons():
+    literal_collapsed = optimize_rules(
+        {"r": Sequence(children=[Literal("a"), Literal("b"), Literal("c")])}
+    )
+    singleton_alt = optimize_rules({"r": Alternative(alternatives=[Literal("x")])})
+    singleton_seq = optimize_rules({"r": Sequence(children=[Literal("x")])})
+    redundant_group = optimize_rules({"r": Group(child=Literal("x"))})
+
+    assert literal_collapsed["r"] == Literal("abc")
+    assert singleton_alt["r"] == Literal("x")
+    assert singleton_seq["r"] == Literal("x")
+    assert redundant_group["r"] == Literal("x")
+
+
+def test_optimizations_merge_adjacent_repetitions():
+    merged = optimize_rules(
+        {
+            "r": Sequence(
+                children=[
+                    Repeat(child=Literal("x"), min=0, max=1),
+                    Repeat(child=Literal("x"), min=0, max=1),
+                    Repeat(child=Literal("x"), min=0, max=1),
+                    Repeat(child=Literal("x"), min=0, max=1),
+                ]
+            )
+        }
+    )["r"]
+
+    assert isinstance(merged, Repeat)
+    assert (merged.min, merged.max) == (0, 4)
+
+
+def test_helper_nodes_emit_expected_patterns():
+    assert _emit(WS()) == '[ \\t\\n]*'
+    assert _emit(WS(required=True)) == '[ \\t\\n]+'
+    assert _emit(keyword("return")) == '"return"'
+    assert "a-zA-Z_" in _emit(identifier())
+    assert "0-9" in _emit(number())
+    assert '"."' in _emit(float_number())
+    assert '[^"\\\\]' in _emit(string_literal())
+    assert "," in _emit(comma_list(RuleReference(name="item")))
+    assert _emit(between("(", RuleReference(name="expr"), ")")) == '"(" expr ")"'
+
+
+def test_rule_names_are_converted_to_dashed_form():
+    g = Grammar()
+
+    @g.rule
+    def my_rule():
+        return Literal("x")
+
+    g.start("my_rule")
+    gbnf = g.to_gbnf()
+
+    assert "my-rule ::=" in gbnf
+    assert "root ::= my-rule" in gbnf
+
+
+def test_schema_for_required_dataclass_has_no_optional_tail():
+    gbnf = grammar_from_type(_AllRequired).to_gbnf()
+    dc_line = [line for line in gbnf.splitlines() if "AllRequired" in line and "::=" in line][0]
+
+    assert ")?" not in dc_line
+    assert '\\"name\\"' in gbnf
+    assert '\\"age\\"' in gbnf
+
+
+def test_schema_for_dataclass_with_defaults_contains_optional_fields():
+    gbnf = grammar_from_type(_WithDefaults).to_gbnf()
+
+    assert ")?" in gbnf
+    assert '\\"name\\"' in gbnf
+    assert '\\"active\\"' in gbnf
+    assert '\\"nickname\\"' in gbnf
+    assert gbnf.count(")?") >= 2
+
+
+def test_schema_for_all_default_dataclass_allows_empty_object():
+    gbnf = grammar_from_type(_AllDefaults).to_gbnf()
+
+    assert ")?" in gbnf
+    assert '\\"x\\"' in gbnf
+    assert '\\"y\\"' in gbnf
+
+
+def test_template_builder_supports_literal_only_templates():
+    rendered = _emit(T("Hello world\n"))
+    assert '"Hello world" "\\n"' in rendered
+
+
+def test_template_builder_supports_placeholders():
+    rendered = _emit(T(f"Age: {number()}\n"))
+    assert '"Age: "' in rendered
+    assert '"\\n"' in rendered
+
+
+@pytest.mark.parametrize(
+    ("template", "needle"),
+    [
+        (lambda free: T(f"Items:\n- {free:+}\n"), "*"),
+        (lambda free: T(f"Header:\n- {free:*}\n"), "*"),
+    ],
+)
+def test_template_builder_supports_line_quantifiers(template, needle):
+    free = one_or_more(CharacterClass(pattern="^\\n"))
+    rendered = _emit(template(free))
+    assert needle in rendered
+
+
+def test_template_builder_supports_multiple_sections():
+    free = one_or_more(CharacterClass(pattern="^\\n"))
+    rendered = _emit(
+        T(
+            f"""# Section A:
 - {free}+
 # Section B:
 - {free}+
 Done:
-""")
-out = _emit(node)
-check("multi-section has Done", '"Done:"' in out, True)
-check("multi-section has Section A", '"# Section A:"' in out, True)
+"""
+        )
+    )
 
-# Full round-trip: embed in a grammar
-g_tpl = cfg.Grammar()
+    assert '"Done:"' in rendered
+    assert '"# Section A:"' in rendered
 
-@g_tpl.rule
-def template_test():
-    f = one_or_more(CharacterClass(pattern="^\\n"))
-    return T(f"""Nom: {identifier()}
+
+def test_template_builder_round_trips_inside_grammar():
+    g = cfg.Grammar()
+
+    @g.rule
+    def template_test():
+        f = one_or_more(CharacterClass(pattern="^\\n"))
+        return T(
+            f"""Nom: {identifier()}
 Age: {number()}
-""")
+"""
+        )
 
-g_tpl.start("template_test")
-gbnf = g_tpl.to_gbnf()
-check("grammar round-trip has Nom", '"Nom: "' in gbnf, True)
-check("grammar round-trip has Age", 'Age: ' in gbnf, True)
+    g.start("template_test")
+    gbnf = g.to_gbnf()
 
-# Registry is cleaned up after T() call
-check("registry cleaned", getattr(_tl, 'counter', 0), 0)
+    assert '"Nom: "' in gbnf
+    assert "Age: " in gbnf
 
-# ── Summary ──────────────────────────────────────────────────────────
 
-print(f"\n{'=' * 40}")
-print(f"Results: {passed} passed, {failed} failed")
-if failed:
-    sys.exit(1)
-else:
-    print("All tests passed ✓")
+def test_template_builder_cleans_registry_after_use():
+    T("Hello world\n")
+    assert getattr(_tl, "counter", 0) == 0

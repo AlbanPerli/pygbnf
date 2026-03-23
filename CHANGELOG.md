@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- Test suite fully migrated to native `pytest` modules
+  - Replaced the monolithic script-style test runner with granular test files: `tests/test_core.py`, `tests/test_pygbnf.py`, `tests/test_schema.py`, `tests/test_matcher.py`
+  - Removed `sys.exit()`-driven collection behavior from the test suite
+  - Split broad smoke coverage into maintainable unit tests grouped by subsystem
+
+### Added
+- Minimal GitHub Actions CI workflow running `pytest -q` on Python 3.11, 3.12, and 3.13
+
 ## [0.5.0] — 2026-03-14
 
 ### Added

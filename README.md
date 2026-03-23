@@ -430,6 +430,29 @@ When `rule_names` is omitted, only user-defined rules are included (auto-generat
 - **Optional:** `openai>=1.0` for `GrammarLLM` (`pip install pygbnf[llm]`)
 - **Optional:** [Graphviz](https://graphviz.org/) CLI for SVG rendering
 
+## Testing
+
+Install the package in editable mode with `pytest`:
+
+```bash
+python -m pip install -e . pytest
+```
+
+Run the full test suite:
+
+```bash
+pytest -q
+```
+
+The suite is organized as native `pytest` modules:
+
+- `tests/test_core.py` — core grammar, code generation, helpers, and edge cases
+- `tests/test_pygbnf.py` — DSL composition, optimizations, and template builder coverage
+- `tests/test_schema.py` — schema compilation and higher-level integrations
+- `tests/test_matcher.py` — incremental matcher behavior
+
+A minimal GitHub Actions workflow runs the suite on Python 3.11, 3.12, and 3.13.
+
 ## Acknowledgements
 
 - [guidance-ai](https://github.com/guidance-ai/guidance) — pygbnf's composable API is inspired by their approach to constrained generation
