@@ -8,6 +8,10 @@ A composable Python DSL for building **GBNF grammars** compatible with [llama.cp
 
 3) Real-time rule matching during inference.
 
+pygbnf supports both:
+- classic node-by-node grammar composition with `select()`, `repeat()`, `group()`, etc.
+- template-first grammar authoring with `T()`, which lets you write constrained text formats as natural Python f-strings
+
 ## Installation
 
 ```bash
@@ -55,6 +59,39 @@ print(text)
 ```
 
 The grammar constrains the LLM output — it can only produce `yes`, `no`, or `maybe`.
+
+## Template-First Grammars with `T()`
+
+`T()` is one of the most expressive parts of the library. It lets you write
+structured text grammars as readable templates instead of building everything
+node-by-node.
+
+```python
+from pygbnf import T, line, identifier, number, Grammar
+
+g = Grammar()
+
+@g.rule
+def person_card():
+    return T(f"""Name: {identifier()}
+Age: {number()}
+Tags:
+{line("- "):+}
+""")
+
+g.start("person_card")
+print(g.to_gbnf())
+```
+
+This is especially useful for:
+- prompt-shaped outputs
+- markdown-like or bullet-list formats
+- semi-structured text with repeated sections
+- grammars that should stay readable in source form
+
+`T()` works with normal grammar nodes embedded in f-strings, and supports
+line-level quantifiers such as `{node:+}`, `{node:*}`, `{node:?}`, `{node:3}`,
+and `{node:2,5}`.
 
 ## Guidance-Style GBNF
 
@@ -258,7 +295,7 @@ Every grammar construct is a frozen dataclass node. Nodes compose via `+` (seque
 ### DSL Combinators
 
 ```python
-from pygbnf import select, one_or_more, zero_or_more, optional, repeat, group
+from pygbnf import T, line, select, one_or_more, zero_or_more, optional, repeat, group
 
 # Character class from string
 select("0123456789")          # → [0123456789]
@@ -274,6 +311,10 @@ repeat(x, 2, 5)              # → x{2,5}
 
 # Grouping
 group(a + b)                  # → (a b)
+
+# Template-first authoring
+T(f"Name: {identifier()}\n")
+line("- ")                    # → "- " [^\n]+
 
 # Operators
 a + b                         # → a b   (sequence)
@@ -322,10 +363,13 @@ from pygbnf import (
     float_number, string_literal,   # complex tokens
     comma_list, between,           # structural patterns
     separated_by, spaced_comma_list,
+    T, line,
 )
 
 comma_list(identifier())   # → ident ("," " "* ident)*
 between("(", expr, ")")    # → "(" expr ")"
+line("- ")                 # → bullet-point line
+T(f"Title: {identifier()}\n")
 ```
 
 ## Recursion Analysis
@@ -352,6 +396,7 @@ See the `examples/` directory:
 | `token_demo.py` | Token-level constraints |
 | `demo_schema.py` | Schema → grammar examples |
 | `demo_enum_select.py` | Enum-based selection |
+| `demo_template.py` | Template-first grammar authoring with `T()` |
 | `demo_simple_lang.py` | Mini-language generation with LLM |
 | `demo_vision.py` | Vision + grammar: solve math from an image |
 | `demo_visualization.py` | Export grammar NFA as DOT / SVG |
