@@ -103,13 +103,25 @@ from .schema import (
 )
 
 # Stream matcher
-from .matcher import GrammarMatcher, RuleEvent, MatchToken
+from .matcher import (
+    GrammarMatcher,
+    MatchToken,
+    NonRegularGrammarError,
+    RegularMatcher,
+    RuleEvent,
+)
 
 # Unified LLM client
 from .llm import GrammarLLM
 
+# Constrained dynamic generation
+from .chain import GrammarChain, GrammarSpace, CtxEntry, space_to_dot, write_space_dot, write_space_svg
+
 # High-level tool calling
 from .toolkit import Toolkit
+
+# TensorAutomata FST export
+from .tensor_automata import GrammarFST, ATTAutomaton, ATTTransition, PRINTABLE_ASCII
 
 # Visualization (DOT / SVG export)
 from .visualization import (
@@ -177,8 +189,17 @@ __all__ = [
     "GrammarMatcher",
     "RuleEvent",
     "MatchToken",
+    "RegularMatcher",
+    "NonRegularGrammarError",
     # LLM client
     "GrammarLLM",
+    # Chain / Space
+    "GrammarChain",
+    "GrammarSpace",
+    "CtxEntry",
+    "space_to_dot",
+    "write_space_dot",
+    "write_space_svg",
     # Toolkit
     "Toolkit",
     # Visualization
@@ -189,6 +210,11 @@ __all__ = [
     "write_grammar_dot",
     "write_grammar_svg",
     "write_rule_dot",
+    # TensorAutomata FST export
+    "GrammarFST",
+    "ATTAutomaton",
+    "ATTTransition",
+    "PRINTABLE_ASCII",
 ]
 
 __version__ = "0.5.0"
