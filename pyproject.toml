@@ -32,9 +32,9 @@ viz = []  # requires Graphviz CLI: brew install graphviz / apt install graphviz
 all = ["openai>=1.0"]
 
 [project.urls]
-Homepage = "https://github.com/al/pygbnf"
-Repository = "https://github.com/al/pygbnf"
-Issues = "https://github.com/al/pygbnf/issues"
+Homepage = "https://github.com/AlbanPerli/pygbnf"
+Repository = "https://github.com/AlbanPerli/pygbnf"
+Issues = "https://github.com/AlbanPerli/pygbnf/issues"
 
 [tool.hatch.version]
 path = "pygbnf/__init__.py"
