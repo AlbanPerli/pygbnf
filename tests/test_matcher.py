@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 """Tests for pygbnf.matcher — GrammarMatcher and RuleEvent."""
 
+import pytest
+
 import pygbnf as cfg
 from pygbnf import (
     Grammar,
     GrammarMatcher,
+    NonRegularGrammarError,
+    RegularMatcher,
     RuleEvent,
     CharacterClass,
     select,
     one_or_more,
     zero_or_more,
     optional,
+    token,
 )
 
 
@@ -190,6 +195,76 @@ class TestCallbacks:
         m.feed("99")
         assert len(a) >= 1
         assert len(b) >= 1
+
+
+class TestRegularMatcher:
+    """Exact matcher for the regular subset."""
+
+    def test_matches_incrementally_on_regular_grammar(self):
+        g = _build_arithmetic_grammar()
+        m = RegularMatcher(g)
+
+        all_events = []
+        for ch in "5 + 3 = 8":
+            all_events.extend(m.feed(ch))
+
+        rule_names = {e.rule for e in all_events}
+        assert "result" in rule_names
+        assert any(e.rule == "result" and e.text == "5 + 3 = 8" for e in all_events)
+
+    def test_reset_clears_buffer_and_active_state(self):
+        g = _build_arithmetic_grammar()
+        m = RegularMatcher(g)
+        m.feed("12 +")
+        m.reset()
+
+        events = m.feed("7")
+        assert m.buffer == "7"
+        assert any(e.rule == "integer" and e.text == "7" for e in events)
+
+    def test_recursive_rule_is_rejected(self):
+        g = Grammar()
+
+        @g.rule
+        def parens():
+            return optional("(" + parens() + ")")
+
+        g.start("parens")
+        g.to_gbnf()
+
+        with pytest.raises(NonRegularGrammarError):
+            RegularMatcher(g)
+
+    def test_token_reference_is_rejected(self):
+        g = Grammar()
+
+        @g.rule
+        def special_token():
+            return token("hello")
+
+        g.start("special_token")
+        g.to_gbnf()
+
+        with pytest.raises(NonRegularGrammarError):
+            RegularMatcher(g)
+
+    def test_only_can_ignore_non_regular_rules(self):
+        g = Grammar()
+
+        @g.rule
+        def digits():
+            return one_or_more(CharacterClass(pattern="0-9"))
+
+        @g.rule
+        def parens():
+            return optional("(" + parens() + ")")
+
+        g.start("digits")
+        g.to_gbnf()
+
+        m = RegularMatcher(g, only={"digits"})
+        events = m.feed("42")
+        assert any(e.rule == "digits" and e.text == "42" for e in events)
 
 
 class TestRuleEventDataclass:

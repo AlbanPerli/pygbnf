@@ -4,13 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- `GrammarChain` — imperative constrained generation chain
+  - `chain |= text` — inject context (user message)
+  - `chain >> grammar` — generate constrained by a grammar, type, dataclass, or `@g.rule`, returns a coerced Python value
+  - Automatic type coercion: `int`, `float`, `bool`, `str`, dataclasses (JSON), enums
+- `GrammarSpace` — declarative automaton over grammars (OpenFST style)
+  - Integer states, grammars on arcs: `(from, to, grammar)` or `(from, to, grammar, guard)`
+  - Guards receive the generated value: `lambda v:` or `lambda v, ctx:`
+  - Nested sub-spaces with per-space LLM binding (e.g. judge on a separate server)
+  - `Toolkit` as a first-class arc transition — tool dispatch + result injection into context
+  - Routing via structured dataclass fields (e.g. `next: Literal["observe", "conclude"]`) rather than raw text parsing
+- `CtxEntry` — ordered generation trace `(space, arc, value)` reconstructing the full navigation path
+- `space_to_dot()`, `write_space_dot()`, `write_space_svg()` — Graphviz visualization of a `GrammarSpace`
+- `RegularMatcher` — exact incremental NFA matcher using the same explicit-character NFA as the TensorAutomata FST export
+- `GrammarFST` / `ATTAutomaton` — export grammars as TensorAutomata AT&T transducer files for Julia composition
+- New examples: `demo_chain.py`, `demo_chain_template.py`, `demo_multistep.py`, `demo_react.py` (ReAct loop with tools), `demo_matcher.py`
+
 ### Changed
 - Test suite fully migrated to native `pytest` modules
   - Replaced the monolithic script-style test runner with granular test files: `tests/test_core.py`, `tests/test_pygbnf.py`, `tests/test_schema.py`, `tests/test_matcher.py`
   - Removed `sys.exit()`-driven collection behavior from the test suite
   - Split broad smoke coverage into maintainable unit tests grouped by subsystem
 
-### Added
+### Fixed
 - Minimal GitHub Actions CI workflow running `pytest -q` on Python 3.11, 3.12, and 3.13
 
 ## [0.5.0] — 2026-03-14

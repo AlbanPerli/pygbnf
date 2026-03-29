@@ -9,19 +9,44 @@ from pygbnf import T, GrammarLLM, int_range, line, select
 g = cfg.Grammar()
 
 @g.rule
+def think():
+    return T(f"""<think>
+{line():2,5}
+</think>""")
+
+@g.rule
+def critic():
+    return T(f"""<critic>
+{line():2,5}
+</critic>""")
+
+
+@g.rule
+def conclude():
+    return T(f"""<conclude>
+{line():2,5}
+</conclude>""")
+
+
+@g.rule
 def code_review():
-    return  T(f"""Severity: {select(["critical", "major", "minor", "info"])}
+    return T(f"""{think()}
+{critic()}
+Severity: {select(["critical", "major", "minor", "info"])}
 Confidence: {int_range(0,10)}/10
 Summary:
 From architect point of view: 
-{line()}
+{line():2,3}
 From dev point of view:
 {line()}
 From security point of view:
 {line()}
 Suggested fix:
 {line():3}
-""")
+
+{conclude()}
+""") + "\n" 
+
 
 g.start("code_review")
 
@@ -45,7 +70,7 @@ for token, events in llm.stream(
          "    return db.execute(query)"},
     ],
     grammar=g,
-    n_predict=512,
+    on={"code_review": lambda token: print(f"=== Code Review Finished ===\n{token.text}")},
 ):
     sys.stdout.write(token)
     sys.stdout.flush()
